@@ -996,7 +996,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _backupData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      Map<String, dynamic> data = {};
+      Map<String, dynamic> data = {
+        'backupMarker': 'WifiZoneManagerBackup',
+        'backupVersion': 1,
+      };
       data['companyName'] = prefs.getString(AppConfig.companyName);
       data['companyPhone'] = prefs.getString(AppConfig.companyPhone);
       data['commissionRate'] = prefs.getDouble(AppConfig.commissionRate);
@@ -1006,54 +1009,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
       data['salesHistory'] = prefs.getString('sales_history');
       data['wifiZones'] = prefs.getString(AppConfig.wifiZones);
       String? logoPath = prefs.getString(AppConfig.companyLogo);
-      if (logoPath != null && File(logoPath).existsSync()) {
+      if (logoPath != null && await File(logoPath).exists()) {
         List<int> bytes = await File(logoPath).readAsBytes();
         data['companyLogoBase64'] = base64Encode(bytes);
-        data['companyLogoExtension'] = logoPath.split('.').last;
+        String ext = logoPath.contains('.') ? logoPath.split('.').last : 'png';
+        data['companyLogoExtension'] = ext;
       }
       String jsonData = jsonEncode(data);
       Directory docDir = await getApplicationDocumentsDirectory();
-      String filePath = '${docDir.path}/wifi_zone_backup.json';
+      String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      String filePath = '${docDir.path}/wifi_zone_backup_$timestamp.json';
       await File(filePath).writeAsString(jsonData);
-      await Share.shareXFiles([XFile(filePath)], text: 'WiFi Zone Manager Backup');
+      await Share.shareXFiles([XFile(filePath)], text: 'WiFi Zone Manager Backup - $timestamp');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ব্যাকআপ সফলভাবে নেওয়া হয়েছে এবং শেয়ার করা হয়েছে।")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ব্যাকআপ সফলভাবে নেওয়া হয়েছে এবং শেয়ার করা হয়েছে।")));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("ব্যাকআপ নিতে সমস্যা: $e")));
       }
     }
-  }
+   }
  
-  Future<void> _restoreData() async {
+   Future<void> _restoreData() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
-      if (result != null) {
-        String filePath = result.files.single.path!;
-        String jsonData = await File(filePath).readAsString();
-        Map<String, dynamic> data = jsonDecode(jsonData);
-        final prefs = await SharedPreferences.getInstance();
-        if (data.containsKey('companyName')) await prefs.setString(AppConfig.companyName, data['companyName']);
-        if (data.containsKey('companyPhone')) await prefs.setString(AppConfig.companyPhone, data['companyPhone']);
-        if (data.containsKey('commissionRate')) await prefs.setDouble(AppConfig.commissionRate, data['commissionRate']);
-        if (data.containsKey('invoiceCounter')) await prefs.setInt(AppConfig.invoiceCounter, data['invoiceCounter']);
-        if (data.containsKey('savedCardPrices')) await prefs.setStringList('saved_card_prices', List<String>.from(data['savedCardPrices']));
-        if (data.containsKey('cardStock')) await prefs.setString('card_stock', data['cardStock']);
-        if (data.containsKey('salesHistory')) await prefs.setString('sales_history', data['salesHistory']);
-        if (data.containsKey('wifiZones')) await prefs.setString(AppConfig.wifiZones, data['wifiZones']);
-        if (data.containsKey('companyLogoBase64')) {
-          List<int> bytes = base64Decode(data['companyLogoBase64']);
+      if (result == null) return;
+      bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("রিস্টোর নিশ্চিতকরণ"),
+          content: const Text("এটি বর্তমান সকল ডেটা ওভাররাইট করবে। চালিয়ে যাবেন?"),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("না")),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("হ্যাঁ")),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+      String filePath = result.files.single.path!;
+      String jsonData = await File(filePath).readAsString();
+      Map<String, dynamic> data = jsonDecode(jsonData);
+      if (data['backupMarker'] != 'WifiZoneManagerBackup') {
+        throw 'অবৈধ ব্যাকআপ ফাইল: মার্কার মিলছে না।';
+      }
+      num? ver = data['backupVersion'] as num?;
+      if (ver == null || ver.toInt() != 1) {
+        throw 'ব্যাকআপ সংস্করণ অসামঞ্জস্যপূর্ণ।';
+      }
+      final prefs = await SharedPreferences.getInstance();
+      // Helper to set/remove string prefs
+      Future<void> handleString(String prefKey, String mapKey) async {
+        if (data.containsKey(mapKey)) {
+          String? val = data[mapKey] as String?;
+          if (val != null) {
+            await prefs.setString(prefKey, val);
+          } else {
+            await prefs.remove(prefKey);
+          }
+        }
+      }
+      // Helper for double
+      Future<void> handleDouble(String prefKey, String mapKey) async {
+        if (data.containsKey(mapKey)) {
+          num? val = data[mapKey] as num?;
+          if (val != null) {
+            await prefs.setDouble(prefKey, val.toDouble());
+          } else {
+            await prefs.remove(prefKey);
+          }
+        }
+      }
+      // Helper for int
+      Future<void> handleInt(String prefKey, String mapKey) async {
+        if (data.containsKey(mapKey)) {
+          num? val = data[mapKey] as num?;
+          if (val != null) {
+            await prefs.setInt(prefKey, val.toInt());
+          } else {
+            await prefs.remove(prefKey);
+          }
+        }
+      }
+      // Helper for string list
+      Future<void> handleStringList(String prefKey, String mapKey) async {
+        if (data.containsKey(mapKey)) {
+          List<dynamic>? val = data[mapKey] as List<dynamic>?;
+          if (val != null) {
+            await prefs.setStringList(prefKey, val.cast<String>());
+          } else {
+            await prefs.remove(prefKey);
+          }
+        }
+      }
+      await handleString(AppConfig.companyName, 'companyName');
+      await handleString(AppConfig.companyPhone, 'companyPhone');
+      await handleDouble(AppConfig.commissionRate, 'commissionRate');
+      await handleInt(AppConfig.invoiceCounter, 'invoiceCounter');
+      await handleStringList('saved_card_prices', 'savedCardPrices');
+      await handleString('card_stock', 'cardStock');
+      await handleString('sales_history', 'salesHistory');
+      await handleString(AppConfig.wifiZones, 'wifiZones');
+      // Logo handling
+      if (data.containsKey('companyLogoBase64')) {
+        String? b64 = data['companyLogoBase64'] as String?;
+        if (b64 != null && b64.isNotEmpty) {
+          List<int> bytes = base64Decode(b64);
           Directory docDir = await getApplicationDocumentsDirectory();
-          String ext = data['companyLogoExtension'] ?? 'png';
+          String ext = (data['companyLogoExtension'] as String?) ?? 'png';
           String newPath = '${docDir.path}/company_logo.$ext';
           await File(newPath).writeAsBytes(bytes);
           await prefs.setString(AppConfig.companyLogo, newPath);
+        } else {
+          await prefs.remove(AppConfig.companyLogo);
         }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ডেটা সফলভাবে রিস্টোর হয়েছে। অ্যাপ রিস্টার্ট করুন।")));
-          Navigator.pop(context);
-        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ডেটা সফলভাবে রিস্টোর হয়েছে। অ্যাপ রিস্টার্ট করুন।")));
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
@@ -1613,7 +1686,6 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
                   ),
                 ),
               ),
-             
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
