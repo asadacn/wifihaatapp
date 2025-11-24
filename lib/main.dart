@@ -1,30 +1,24 @@
-// নিম্নলিখিত প্যাকেজগুলি অবশ্যই pubspec.yaml-এ যুক্ত করতে হবে:
-// geolocator: ^11.0.0
-// share_plus: ^8.0.0
-// url_launcher: ^6.2.2
-// image_cropper: ^5.1.0
-// image_picker: ^1.1.2
-// file_picker: ^6.1.1
-// path_provider: ^2.1.1
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io'; 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:geolocator/geolocator.dart'; // Real Geolocator Import
 import 'package:url_launcher/url_launcher.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
+
 // ** NOTE: Uncomment this if you have added image_cropper to pubspec.yaml **
-// import 'package:image_cropper/image_cropper.dart';
+ import 'package:image_cropper/image_cropper.dart'; 
+
 void main() {
   runApp(const WifiCardApp());
 }
+
 class WifiCardApp extends StatelessWidget {
   const WifiCardApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -36,15 +30,15 @@ class WifiCardApp extends StatelessWidget {
         // Cobalt Sky Color Scheme
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF0047AB), // Cobalt Blue
-          primary: const Color(0xFF0047AB), // Deep Cobalt
+          primary: const Color(0xFF0047AB),   // Deep Cobalt
           secondary: const Color(0xFF00B4D8), // Bright Sky Blue
-          tertiary: const Color(0xFFCAF0F8), // Pale Sky
-          surface: const Color(0xFFF0F9FF), // Very Light Alice Blue
+          tertiary: const Color(0xFFCAF0F8),  // Pale Sky
+          surface: const Color(0xFFF0F9FF),   // Very Light Alice Blue
           surfaceContainer: Colors.white,
           onSurface: const Color(0xFF0F172A), // Dark Slate for Text
         ),
         scaffoldBackgroundColor: const Color(0xFFF0F9FF),
-       
+        
         cardTheme: CardThemeData(
           elevation: 0,
           color: Colors.white,
@@ -54,6 +48,7 @@ class WifiCardApp extends StatelessWidget {
           ),
           margin: const EdgeInsets.only(bottom: 12),
         ),
+
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           foregroundColor: Color(0xFF0047AB),
@@ -61,6 +56,7 @@ class WifiCardApp extends StatelessWidget {
           centerTitle: true,
           titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0047AB), letterSpacing: -0.5),
         ),
+
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF0047AB),
@@ -72,6 +68,7 @@ class WifiCardApp extends StatelessWidget {
             textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
         ),
+
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
@@ -87,12 +84,14 @@ class WifiCardApp extends StatelessWidget {
     );
   }
 }
+
 // --- Custom Modern Header Widget (With Logo) ---
 class ModernHeader extends StatelessWidget {
   final String title;
   final String subtitle;
   final String? logoPath;
   final VoidCallback? onSettingsTap;
+
   const ModernHeader({
     super.key,
     required this.title,
@@ -100,6 +99,7 @@ class ModernHeader extends StatelessWidget {
     this.logoPath,
     this.onSettingsTap,
   });
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -146,14 +146,14 @@ class ModernHeader extends StatelessWidget {
                     ),
                     child: const Icon(Icons.wifi, color: Colors.white, size: 28),
                   ),
-               
+                
                 // Titles
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title,
+                        title, 
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
@@ -186,6 +186,7 @@ class ModernHeader extends StatelessWidget {
     );
   }
 }
+
 // --- Models ---
 class SaleRecord {
   final String invoiceNumber;
@@ -197,6 +198,7 @@ class SaleRecord {
   final double cashAmount;
   final String date;
   final Map<String, int> items;
+
   SaleRecord({
     required this.invoiceNumber,
     required this.retailerName,
@@ -208,6 +210,7 @@ class SaleRecord {
     required this.date,
     required this.items,
   });
+
   Map<String, dynamic> toJson() => {
         'invoiceNumber': invoiceNumber,
         'retailerName': retailerName,
@@ -219,6 +222,7 @@ class SaleRecord {
         'date': date,
         'items': items,
       };
+
   factory SaleRecord.fromJson(Map<String, dynamic> json) => SaleRecord(
         invoiceNumber: json['invoiceNumber'] ?? 'OLD',
         retailerName: json['retailerName'],
@@ -231,6 +235,7 @@ class SaleRecord {
         items: Map<String, int>.from(json['items']),
       );
 }
+
 class WifiZone {
   final String id;
   String zoneId;
@@ -240,6 +245,7 @@ class WifiZone {
   String deviceType;
   String gps;
   String status;
+
   WifiZone({
     required this.id,
     required this.zoneId,
@@ -250,6 +256,7 @@ class WifiZone {
     required this.gps,
     required this.status,
   });
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'zoneId': zoneId,
@@ -260,6 +267,7 @@ class WifiZone {
     'gps': gps,
     'status': status,
   };
+
   factory WifiZone.fromJson(Map<String, dynamic> json) => WifiZone(
     id: json['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
     zoneId: json['zoneId'] ?? '',
@@ -271,6 +279,7 @@ class WifiZone {
     status: json['status'] ?? 'Active',
   );
 }
+
 class AppConfig {
   static const String companyName = 'company_name';
   static const String companyPhone = 'company_phone';
@@ -279,15 +288,18 @@ class AppConfig {
   static const String companyLogo = 'company_logo';
   static const String wifiZones = 'wifi_zones';
 }
+
 // --- Home Screen ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
+
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
- 
+  
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = [
@@ -296,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const HistoryScreen(),
       WifiZoneScreen(key: UniqueKey()),
     ];
+
     return Scaffold(
       body: pages[_selectedIndex],
       bottomNavigationBar: NavigationBar(
@@ -336,12 +349,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
 // --- Dashboard Screen ---
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
+
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, double> salesSummary = {'Today': 0, 'Weekly': 0, 'Monthly': 0};
   Map<String, int> cardWiseSales = {};
@@ -352,16 +368,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<double> weeklyChartData = List.filled(7, 0.0);
   List<String> weekDaysLabels = [];
   bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
     _loadDashboardData();
   }
+
   Future<void> _loadDashboardData() async {
     final prefs = await SharedPreferences.getInstance();
     companyName = prefs.getString(AppConfig.companyName) ?? "WiFi Zone Manager";
     logoPath = prefs.getString(AppConfig.companyLogo);
-   
+    
     List<String>? savedPrices = prefs.getStringList('saved_card_prices');
     if (savedPrices != null) {
       cardPrices = savedPrices.map((e) => int.parse(e)).toList();
@@ -369,10 +387,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else {
       cardPrices = [9, 15, 25, 50, 89, 249];
     }
-   
+    
     String? stockJson = prefs.getString('card_stock');
     if (stockJson != null) stock = Map<String, int>.from(jsonDecode(stockJson));
-   
+    
     String? historyJson = prefs.getString('sales_history');
     List<SaleRecord> history = [];
     if (historyJson != null) {
@@ -382,112 +400,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _calculateReports(history);
     setState(() => _isLoading = false);
   }
+
   void _calculateReports(List<SaleRecord> history) {
     DateTime now = DateTime.now();
-    DateFormat formatter = DateFormat('yyyy-MM-dd hh:mm a');
-   
+    DateFormat formatter = DateFormat('yyyy-MM-dd hh:mm a'); 
+    
     double todayTotal = 0;
     double weeklyTotal = 0;
     double monthlyTotal = 0;
     Map<String, int> tempCardSales = {};
-   
+    
     weeklyChartData = List.filled(7, 0.0);
     weekDaysLabels = [];
-   
+    
     for (int i = 6; i >= 0; i--) {
       weekDaysLabels.add(DateFormat('E').format(now.subtract(Duration(days: i))));
     }
+
     for (var sale in history) {
       try {
         DateTime saleDate = formatter.parse(sale.date);
         DateTime justDateNow = DateTime(now.year, now.month, now.day);
         DateTime justDateSale = DateTime(saleDate.year, saleDate.month, saleDate.day);
-       
+        
         int diffDays = justDateNow.difference(justDateSale).inDays;
-       
+        
         if (diffDays == 0) todayTotal += sale.cashAmount;
         if (diffDays <= 7) weeklyTotal += sale.cashAmount;
         if (diffDays <= 30) monthlyTotal += sale.cashAmount;
+
         if (diffDays >= 0 && diffDays < 7) {
           weeklyChartData[6 - diffDays] += sale.cashAmount;
         }
+
         sale.items.forEach((price, qty) {
           tempCardSales[price] = (tempCardSales[price] ?? 0) + qty;
         });
       } catch (e) { }
     }
+
     salesSummary['Today'] = todayTotal;
     salesSummary['Weekly'] = weeklyTotal;
     salesSummary['Monthly'] = monthlyTotal;
     cardWiseSales = tempCardSales;
   }
-  // --- Stock Management Dialog (ADD/UPDATE) ---
-  void _showManageStockDialog(String price) {
+
+  void _showAddStockDialog(String price) {
     TextEditingController qtyController = TextEditingController();
-    int currentStock = stock[price] ?? 0;
-   
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("Stock ম্যানেজ করুন ($price Tk)", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("বর্তমান স্টক: $currentStock টি", style: TextStyle(fontSize: 14, color: Colors.grey[700], fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: qtyController,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: "সংখ্যা লিখুন (pcs)", border: OutlineInputBorder()),
-            ),
-          ],
+        title: Text("Stock যোগ করুন ($price Tk)", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
+        content: TextField(
+          controller: qtyController,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: "পরিমাণ (pcs)"),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("বাতিল")
-          ),
-          // Update/Set Button (Corrects mistake)
-          TextButton(
-            onPressed: () async {
-              int? qty = int.tryParse(qtyController.text);
-              if (qty != null) {
-                await _updateStock(price, qty, isOverwrite: true);
-                if (mounted) Navigator.pop(context);
-              }
-            },
-            child: const Text("সেট করুন (Set)", style: TextStyle(color: Colors.orange)),
-          ),
-          // Add Button (Normal flow)
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("বাতিল")),
           ElevatedButton(
             onPressed: () async {
-              int? qty = int.tryParse(qtyController.text);
-              if (qty != null) {
-                await _updateStock(price, qty, isOverwrite: false);
+              int qty = int.tryParse(qtyController.text) ?? 0;
+              if (qty > 0) {
+                final prefs = await SharedPreferences.getInstance();
+                setState(() {
+                  stock[price] = (stock[price] ?? 0) + qty;
+                });
+                await prefs.setString('card_stock', jsonEncode(stock));
                 if (mounted) Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Stock আপডেট হয়েছে!")));
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0047AB), foregroundColor: Colors.white),
-            child: const Text("যোগ করুন (Add)"),
+            child: const Text("আপডেট"),
           )
         ],
       ),
     );
   }
-  Future<void> _updateStock(String price, int qty, {required bool isOverwrite}) async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      if (isOverwrite) {
-        stock[price] = qty;
-      } else {
-        stock[price] = (stock[price] ?? 0) + qty;
-      }
-    });
-    await prefs.setString('card_stock', jsonEncode(stock));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isOverwrite ? "স্টক সংশোধন করা হয়েছে (Updated)!" : "স্টক যোগ করা হয়েছে (Added)!")));
-  }
+
   void _openSettings() async {
     await Navigator.push(
       context,
@@ -495,12 +486,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     _loadDashboardData();
   }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
+
     List<BarChartGroupData> qtyChartGroups = [];
     double maxQty = 0;
-   
+    
     for (int i = 0; i < cardPrices.length; i++) {
       String price = cardPrices[i].toString();
       double qty = (cardWiseSales[price] ?? 0).toDouble();
@@ -524,6 +517,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
     }
+
     return Scaffold(
       body: Column(
         children: [
@@ -547,6 +541,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
+
                   const Text("সাপ্তাহিক রেভিনিউ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
                   const SizedBox(height: 12),
                   Container(
@@ -560,7 +555,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: BarChart(
                       BarChartData(
                         alignment: BarChartAlignment.spaceAround,
-                        // Ensure maxY scales correctly even if all values are 0
                         maxY: (weeklyChartData.reduce((a, b) => a > b ? a : b)) == 0 ? 10 : weeklyChartData.reduce((a, b) => a > b ? a : b) * 1.2,
                         barTouchData: BarTouchData(enabled: true, touchTooltipData: BarTouchTooltipData(getTooltipColor: (group) => const Color(0xFF0047AB))),
                         titlesData: FlTitlesData(
@@ -573,15 +567,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         gridData: const FlGridData(show: false),
                         borderData: FlBorderData(show: false),
                         barGroups: List.generate(7, (i) => BarChartGroupData(x: i, barRods: [BarChartRodData(
-                          toY: weeklyChartData[i],
+                          toY: weeklyChartData[i], 
                           color: weeklyChartData[i] > 0 ? const Color(0xFF0047AB) : const Color(0xFFCAF0F8),
-                          width: 12,
+                          width: 12, 
                           borderRadius: BorderRadius.circular(4)
                         )])),
                       ),
                     ),
                   ),
                   const SizedBox(height: 24),
+
                   const Text("কার্ড অনুযায়ী বিক্রয়", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
                   const SizedBox(height: 12),
                   Container(
@@ -611,6 +606,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
+
                   const Text("স্টক আপডেট", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
                   const SizedBox(height: 12),
                   GridView.builder(
@@ -623,7 +619,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       String price = cardPrices[index].toString();
                       int qty = stock[price] ?? 0;
                       return InkWell(
-                        onTap: () => _showManageStockDialog(price),
+                        onTap: () => _showAddStockDialog(price),
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
@@ -657,6 +653,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+
   Widget _buildSummaryCard(String title, double amount, Color accentColor) {
     return Expanded(
       child: Container(
@@ -695,12 +692,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
+
 // --- Sales Entry Screen (Cobalt & White) ---
 class SalesEntryScreen extends StatefulWidget {
   const SalesEntryScreen({super.key});
   @override
   State<SalesEntryScreen> createState() => _SalesEntryScreenState();
 }
+
 class _SalesEntryScreenState extends State<SalesEntryScreen> {
   List<int> cardPrices = [];
   Map<String, int> stock = {};
@@ -709,11 +708,13 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   List<String> _retailerNames = [];
-  Map<String, String> _retailerPhoneMap = {};
+  Map<String, String> _retailerPhoneMap = {}; 
   double _commissionRate = 10.0;
   bool _isLoading = true;
+
   @override
   void initState() { super.initState(); _loadData(); }
+
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     _commissionRate = (prefs.getDouble(AppConfig.commissionRate) ?? 10.0);
@@ -723,10 +724,12 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     String? historyJson = prefs.getString('sales_history'); if (historyJson != null) { List<dynamic> decoded = jsonDecode(historyJson); for (var item in decoded) { var sale = SaleRecord.fromJson(item); _retailerNames.add(sale.retailerName); _retailerPhoneMap[sale.retailerName] = sale.retailerPhone; } _retailerNames = _retailerNames.toSet().toList(); }
     _initializeControllers(); setState(() => _isLoading = false);
   }
+
   void _initializeControllers() { for (var price in cardPrices) { if (!_quantities.containsKey(price)) _quantities[price] = 0; if (!_controllers.containsKey(price)) _controllers[price] = TextEditingController(); } }
   void _updateQuantity(int price, String value) { setState(() => _quantities[price] = int.tryParse(value) ?? 0); }
   void _clearAll() { setState(() { for (var price in cardPrices) { _quantities[price] = 0; _controllers[price]?.clear(); } _nameController.clear(); _phoneController.clear(); FocusScope.of(context).unfocus(); }); }
   Future<String> _generateInvoiceNumber() async { final prefs = await SharedPreferences.getInstance(); int counter = prefs.getInt(AppConfig.invoiceCounter) ?? 1000; counter++; await prefs.setInt(AppConfig.invoiceCounter, counter); return "INV-$counter"; }
+
   void _submitSale() async {
     if (_nameController.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ডিলার নাম লিখুন'))); return; }
     double grandTotal = 0; Map<String, int> soldItems = {}; List<String> outOfStockItems = [];
@@ -738,12 +741,16 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     await _finalizeSale(newSale, soldItems);
     if (mounted) { showDialog(context: context, builder: (context) => InvoiceDialog(sale: newSale)); _clearAll(); final prefs = await SharedPreferences.getInstance(); String? stockJson = prefs.getString('card_stock'); if (stockJson != null) setState(() => stock = Map<String, int>.from(jsonDecode(stockJson))); }
   }
+
   Future<void> _finalizeSale(SaleRecord sale, Map<String, int> soldItems) async { final prefs = await SharedPreferences.getInstance(); soldItems.forEach((price, qty) { if (stock.containsKey(price)) stock[price] = (stock[price] ?? 0) - qty; }); await prefs.setString('card_stock', jsonEncode(stock)); List<SaleRecord> history = []; String? existingHistory = prefs.getString('sales_history'); if (existingHistory != null) { List<dynamic> decoded = jsonDecode(existingHistory); history = decoded.map((e) => SaleRecord.fromJson(e)).toList(); } history.insert(0, sale); await prefs.setString('sales_history', jsonEncode(history.map((e) => e.toJson()).toList())); }
+
   void _openSettings() async { await Navigator.push(context, MaterialPageRoute(builder: (context) => SettingsScreen(currentPrices: List.from(cardPrices)))); _loadData(); }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     double currentTotal = 0; for (var price in cardPrices) { currentTotal += price * (_quantities[price] ?? 0); } double currentCash = currentTotal - (currentTotal * (_commissionRate / 100));
+
     return Scaffold(
       body: Column(
         children: [
@@ -842,18 +849,21 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     );
   }
 }
+
 // --- History Screen ---
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
+
 class _HistoryScreenState extends State<HistoryScreen> {
   List<SaleRecord> allHistory = []; List<SaleRecord> filteredHistory = []; TextEditingController searchController = TextEditingController();
   @override void initState() { super.initState(); _loadHistory(); }
   Future<void> _loadHistory() async { final prefs = await SharedPreferences.getInstance(); String? historyJson = prefs.getString('sales_history'); if (historyJson != null) { List<dynamic> decoded = jsonDecode(historyJson); setState(() { allHistory = decoded.map((e) => SaleRecord.fromJson(e)).toList(); filteredHistory = allHistory; }); } }
   void _filterHistory(String query) { setState(() { if (query.isEmpty) filteredHistory = allHistory; else filteredHistory = allHistory.where((s) => s.invoiceNumber.toLowerCase().contains(query.toLowerCase()) || s.retailerName.toLowerCase().contains(query.toLowerCase())).toList(); }); }
   void _clearHistory() async { final prefs = await SharedPreferences.getInstance(); await prefs.remove('sales_history'); await prefs.remove(AppConfig.invoiceCounter); setState(() { allHistory = []; filteredHistory = []; }); }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -896,6 +906,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 }
+
 // --- Invoice Dialog & Settings (Visuals Updated) ---
 class InvoiceDialog extends StatefulWidget {
   final SaleRecord sale;
@@ -908,7 +919,7 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
   @override void initState() { super.initState(); _loadCompanyInfo(); }
   void _loadCompanyInfo() async { final prefs = await SharedPreferences.getInstance(); setState(() { companyName = prefs.getString(AppConfig.companyName) ?? "WiFi Zone Manager"; companyPhone = prefs.getString(AppConfig.companyPhone) ?? ""; logoPath = prefs.getString(AppConfig.companyLogo); }); }
   void _shareInvoice() { Share.share("🧾 *ইনভয়েস: ${widget.sale.invoiceNumber}*\n$companyName\n$companyPhone\n------------------------\nতারিখ: ${widget.sale.date}\nডিলার: ${widget.sale.retailerName}\n------------------------\nমোট মূল্য: ${widget.sale.grandTotal.toStringAsFixed(0)} Tk\nকমিশন: -${widget.sale.discountAmount.toStringAsFixed(0)}\n*প্রদেয়: ${widget.sale.cashAmount.toStringAsFixed(0)} Tk*"); }
- 
+  
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -940,6 +951,7 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
   }
   Widget _row(String k, String v, bool bold, {double size=14, Color? color}) => Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(k, style: TextStyle(fontSize: size, fontWeight: bold?FontWeight.bold:FontWeight.normal)), Text(v, style: TextStyle(fontSize: size, fontWeight: bold?FontWeight.bold:FontWeight.normal, color: color))]));
 }
+
 // Settings Screen (With Logo Upload)
 class SettingsScreen extends StatefulWidget {
   final List<int> currentPrices;
@@ -951,20 +963,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late List<int> _prices;
   File? _logoFile;
   final _addController = TextEditingController(), _companyNameCtrl = TextEditingController(), _companyPhoneCtrl = TextEditingController(), _commissionCtrl = TextEditingController();
- 
+  
   @override void initState() { super.initState(); _prices = List.from(widget.currentPrices); _loadSettings(); }
- 
-  void _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _companyNameCtrl.text = prefs.getString(AppConfig.companyName) ?? "";
-      _companyPhoneCtrl.text = prefs.getString(AppConfig.companyPhone) ?? "";
+  
+  void _loadSettings() async { 
+    final prefs = await SharedPreferences.getInstance(); 
+    setState(() { 
+      _companyNameCtrl.text = prefs.getString(AppConfig.companyName) ?? ""; 
+      _companyPhoneCtrl.text = prefs.getString(AppConfig.companyPhone) ?? ""; 
       _commissionCtrl.text = (prefs.getDouble(AppConfig.commissionRate) ?? 10.0).toString();
       String? path = prefs.getString(AppConfig.companyLogo);
       if(path != null) _logoFile = File(path);
-    });
+    }); 
   }
- 
+  
   void _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -974,167 +986,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     }
   }
-  void _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConfig.companyName, _companyNameCtrl.text);
-    await prefs.setString(AppConfig.companyPhone, _companyPhoneCtrl.text);
-    double? c = double.tryParse(_commissionCtrl.text);
-    if(c!=null) await prefs.setDouble(AppConfig.commissionRate, c);
+
+  void _saveSettings() async { 
+    final prefs = await SharedPreferences.getInstance(); 
+    await prefs.setString(AppConfig.companyName, _companyNameCtrl.text); 
+    await prefs.setString(AppConfig.companyPhone, _companyPhoneCtrl.text); 
+    double? c = double.tryParse(_commissionCtrl.text); 
+    if(c!=null) await prefs.setDouble(AppConfig.commissionRate, c); 
     await prefs.setStringList('saved_card_prices', _prices.map((e) => e.toString()).toList());
-   
+    
     if (_logoFile != null) {
       await prefs.setString(AppConfig.companyLogo, _logoFile!.path);
     }
+
     if(mounted){
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("সফলভাবে সংরক্ষণ করা হয়েছে!")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("সফলভাবে সংরক্ষণ করা হয়েছে!"))); 
       Navigator.pop(context);
-    }
+    } 
   }
- 
+  
   void _addPrice() { if(_addController.text.isNotEmpty){ int? p = int.tryParse(_addController.text); if(p!=null && !_prices.contains(p)) { setState(() { _prices.add(p); _prices.sort(); }); Navigator.pop(context); _addController.clear(); } } }
- 
-  Future<void> _backupData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      Map<String, dynamic> data = {
-        'backupMarker': 'WifiZoneManagerBackup',
-        'backupVersion': 1,
-      };
-      data['companyName'] = prefs.getString(AppConfig.companyName);
-      data['companyPhone'] = prefs.getString(AppConfig.companyPhone);
-      data['commissionRate'] = prefs.getDouble(AppConfig.commissionRate);
-      data['invoiceCounter'] = prefs.getInt(AppConfig.invoiceCounter);
-      data['savedCardPrices'] = prefs.getStringList('saved_card_prices');
-      data['cardStock'] = prefs.getString('card_stock');
-      data['salesHistory'] = prefs.getString('sales_history');
-      data['wifiZones'] = prefs.getString(AppConfig.wifiZones);
-      String? logoPath = prefs.getString(AppConfig.companyLogo);
-      if (logoPath != null && await File(logoPath).exists()) {
-        List<int> bytes = await File(logoPath).readAsBytes();
-        data['companyLogoBase64'] = base64Encode(bytes);
-        String ext = logoPath.contains('.') ? logoPath.split('.').last : 'png';
-        data['companyLogoExtension'] = ext;
-      }
-      String jsonData = jsonEncode(data);
-      Directory docDir = await getApplicationDocumentsDirectory();
-      String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      String filePath = '${docDir.path}/wifi_zone_backup_$timestamp.json';
-      await File(filePath).writeAsString(jsonData);
-      await Share.shareXFiles([XFile(filePath)], text: 'WiFi Zone Manager Backup - $timestamp');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ব্যাকআপ সফলভাবে নেওয়া হয়েছে এবং শেয়ার করা হয়েছে।")));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("ব্যাকআপ নিতে সমস্যা: $e")));
-      }
-    }
-   }
- 
-   Future<void> _restoreData() async {
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
-      if (result == null) return;
-      bool? confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("রিস্টোর নিশ্চিতকরণ"),
-          content: const Text("এটি বর্তমান সকল ডেটা ওভাররাইট করবে। চালিয়ে যাবেন?"),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("না")),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("হ্যাঁ")),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-      String filePath = result.files.single.path!;
-      String jsonData = await File(filePath).readAsString();
-      Map<String, dynamic> data = jsonDecode(jsonData);
-      if (data['backupMarker'] != 'WifiZoneManagerBackup') {
-        throw 'অবৈধ ব্যাকআপ ফাইল: মার্কার মিলছে না।';
-      }
-      num? ver = data['backupVersion'] as num?;
-      if (ver == null || ver.toInt() != 1) {
-        throw 'ব্যাকআপ সংস্করণ অসামঞ্জস্যপূর্ণ।';
-      }
-      final prefs = await SharedPreferences.getInstance();
-      // Helper to set/remove string prefs
-      Future<void> handleString(String prefKey, String mapKey) async {
-        if (data.containsKey(mapKey)) {
-          String? val = data[mapKey] as String?;
-          if (val != null) {
-            await prefs.setString(prefKey, val);
-          } else {
-            await prefs.remove(prefKey);
-          }
-        }
-      }
-      // Helper for double
-      Future<void> handleDouble(String prefKey, String mapKey) async {
-        if (data.containsKey(mapKey)) {
-          num? val = data[mapKey] as num?;
-          if (val != null) {
-            await prefs.setDouble(prefKey, val.toDouble());
-          } else {
-            await prefs.remove(prefKey);
-          }
-        }
-      }
-      // Helper for int
-      Future<void> handleInt(String prefKey, String mapKey) async {
-        if (data.containsKey(mapKey)) {
-          num? val = data[mapKey] as num?;
-          if (val != null) {
-            await prefs.setInt(prefKey, val.toInt());
-          } else {
-            await prefs.remove(prefKey);
-          }
-        }
-      }
-      // Helper for string list
-      Future<void> handleStringList(String prefKey, String mapKey) async {
-        if (data.containsKey(mapKey)) {
-          List<dynamic>? val = data[mapKey] as List<dynamic>?;
-          if (val != null) {
-            await prefs.setStringList(prefKey, val.cast<String>());
-          } else {
-            await prefs.remove(prefKey);
-          }
-        }
-      }
-      await handleString(AppConfig.companyName, 'companyName');
-      await handleString(AppConfig.companyPhone, 'companyPhone');
-      await handleDouble(AppConfig.commissionRate, 'commissionRate');
-      await handleInt(AppConfig.invoiceCounter, 'invoiceCounter');
-      await handleStringList('saved_card_prices', 'savedCardPrices');
-      await handleString('card_stock', 'cardStock');
-      await handleString('sales_history', 'salesHistory');
-      await handleString(AppConfig.wifiZones, 'wifiZones');
-      // Logo handling
-      if (data.containsKey('companyLogoBase64')) {
-        String? b64 = data['companyLogoBase64'] as String?;
-        if (b64 != null && b64.isNotEmpty) {
-          List<int> bytes = base64Decode(b64);
-          Directory docDir = await getApplicationDocumentsDirectory();
-          String ext = (data['companyLogoExtension'] as String?) ?? 'png';
-          String newPath = '${docDir.path}/company_logo.$ext';
-          await File(newPath).writeAsBytes(bytes);
-          await prefs.setString(AppConfig.companyLogo, newPath);
-        } else {
-          await prefs.remove(AppConfig.companyLogo);
-        }
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ডেটা সফলভাবে রিস্টোর হয়েছে। অ্যাপ রিস্টার্ট করুন।")));
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("রিস্টোরে সমস্যা: $e")));
-      }
-    }
-  }
- 
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1159,9 +1031,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 10),
             const Center(child: Text("লোগো পরিবর্তন করতে ট্যাপ করুন", style: TextStyle(color: Colors.grey))),
             const SizedBox(height: 30),
+
             const Text("কোম্পানির তথ্য", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
             const SizedBox(height: 10),
-            TextField(controller: _companyNameCtrl, decoration: const InputDecoration(labelText: "কোম্পানির নাম ", prefixIcon: Icon(Icons.store))),
+            TextField(controller: _companyNameCtrl, decoration: const InputDecoration(labelText: "দোকানের নাম", prefixIcon: Icon(Icons.store))),
             const SizedBox(height: 10),
             TextField(controller: _companyPhoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: "ফোন", prefixIcon: Icon(Icons.phone))),
             const SizedBox(height: 30),
@@ -1172,138 +1045,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("কার্ডের দাম", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))), IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF0047AB)), onPressed: () => showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("কার্ডের দাম যোগ করুন"), content: TextField(controller: _addController, keyboardType: TextInputType.number), actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("বাতিল")), ElevatedButton(onPressed: _addPrice, child: const Text("যোগ করুন"))]))) ]),
             ..._prices.map((p) => ListTile(title: Text("$p Tk"), trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => _prices.remove(p))))),
             const SizedBox(height: 20),
-            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _saveSettings, child: const Text("সংরক্ষণ করুন"))),
-            const SizedBox(height: 30),
-            const Text("ব্যাকআপ এবং রিস্টোর", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: ElevatedButton.icon(onPressed: _backupData, icon: const Icon(Icons.backup), label: const Text("ব্যাকআপ নিন"))),
-                const SizedBox(width: 10),
-                Expanded(child: ElevatedButton.icon(onPressed: _restoreData, icon: const Icon(Icons.restore), label: const Text("রিস্টোর করুন"))),
-              ],
-            ),
-            // --- NEW DEVELOPER INFO SECTION (Modern Look) ---
-            const SizedBox(height: 30),
-            const Text("Developer Info", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
-            const SizedBox(height: 10),
-            Center(
-              child: Container(
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                colors: [Color(0xFF0047AB), Color(0xFF00B4D8)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                BoxShadow(
-                  color: Color(0x400047AB),
-                  blurRadius: 12,
-                  offset: Offset(0, 6),
-                ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-                child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
-                    boxShadow: [
-                    BoxShadow(
-                      color: Colors.white.withOpacity(0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                    ],
-                  ),
-                  child: const CircleAvatar(
-                    radius: 32,
-                    backgroundColor: Color(0xFF0047AB),
-                    child: Icon(Icons.code_rounded, color: Colors.white, size: 32),
-                  ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text("Developed by", style: TextStyle(fontSize: 13, color: Color(0xFFCAF0F8))),
-                  const Text(
-                  "Md. Asaduzzaman",
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.phone, size: 16, color: Color(0xFFCAF0F8)),
-                    SizedBox(width: 6),
-                    Text("+8801770033448", style: TextStyle(fontSize: 14, color: Color(0xFFCAF0F8))),
-                  ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.email_outlined, size: 16, color: Color(0xFFCAF0F8)),
-                    SizedBox(width: 6),
-                    Text("asadacn@gmail.com", style: TextStyle(fontSize: 14, color: Color(0xFFCAF0F8))),
-                  ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    "Version 1.0.0",
-                    style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.8)),
-                  ),
-                  ),
-                 
-                ],
-                ),
-              ),
-              ),
-            ),
-            // --- END DEVELOPER INFO SECTION ---
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _saveSettings, child: const Text("সংরক্ষণ করুন")))
           ],
         ),
       ),
     );
   }
 }
+
 // --- NEW SCREEN: WiFi Zone Management ---
 class WifiZoneScreen extends StatefulWidget {
   const WifiZoneScreen({super.key});
+
   @override
   State<WifiZoneScreen> createState() => _WifiZoneScreenState();
 }
+
 class _WifiZoneScreenState extends State<WifiZoneScreen> {
   List<WifiZone> allZones = [];
   List<WifiZone> filteredZones = [];
   bool _isLoading = true;
   final TextEditingController _searchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _loadZones();
     _searchController.addListener(_filterZones);
   }
+
   @override
   void dispose() {
     _searchController.removeListener(_filterZones);
     _searchController.dispose();
     super.dispose();
   }
+
   Future<void> _loadZones() async {
     final prefs = await SharedPreferences.getInstance();
     String? zonesJson = prefs.getString(AppConfig.wifiZones);
@@ -1314,6 +1091,7 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
     _filterZones(); // Initial filtering to show all zones
     setState(() => _isLoading = false);
   }
+
   void _filterZones() {
     final query = _searchController.text.toLowerCase();
     setState(() {
@@ -1328,10 +1106,12 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
       }
     });
   }
+
   Future<void> _saveZones() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(AppConfig.wifiZones, jsonEncode(allZones.map((e) => e.toJson()).toList()));
   }
+
   void _addEditZone({WifiZone? zone}) async {
     await Navigator.push(
       context,
@@ -1339,8 +1119,9 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
     );
     // Reload data after returning from entry screen
     await _loadZones();
-    _saveZones();
+    _saveZones(); 
   }
+
   void _deleteZone(WifiZone zone) {
     setState(() {
       allZones.removeWhere((z) => z.id == zone.id);
@@ -1349,6 +1130,7 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
     _saveZones();
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("জোনটি মুছে ফেলা হয়েছে।")));
   }
+
   void _shareZone(WifiZone zone) {
     final shareText = """
 🚀 WiFi Zone Details 🚀
@@ -1360,24 +1142,28 @@ Device Type: ${zone.deviceType}
 Status: ${zone.status}
 Address: ${zone.address}
 GPS: ${zone.gps}
+
 Map Link: ${zone.gps.isNotEmpty ? 'https://maps.google.com/?q=${zone.gps}' : 'N/A'}
 """;
     Share.share(shareText, subject: 'WiFi Zone: ${zone.title}');
   }
+
   void _openMap(String gpsCoordinates) async {
     if (gpsCoordinates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GPS কো-অর্ডিনেট সেট করা হয়নি।")));
       return;
     }
-   
+    
     // GPS format is typically "Latitude, Longitude" (e.g., "23.8103, 90.4125")
     final uri = Uri.parse('https://maps.google.com/?q=$gpsCoordinates');
+
     if (!await launchUrl(uri)) {
       if(mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ম্যাপ খোলা যাচ্ছে না। লোকেশন: $gpsCoordinates')));
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1389,11 +1175,11 @@ Map Link: ${zone.gps.isNotEmpty ? 'https://maps.google.com/?q=${zone.gps}' : 'N/
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: "জোন ID, নাম বা ঠিকানা দিয়ে খুঁজুন...",
-                prefixIcon: const Icon(Icons.search),
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                filled: true,
+                hintText: "জোন ID, নাম বা ঠিকানা দিয়ে খুঁজুন...", 
+                prefixIcon: const Icon(Icons.search), 
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20), 
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none), 
+                filled: true, 
                 fillColor: Colors.white
               ),
             ),
@@ -1418,6 +1204,7 @@ Map Link: ${zone.gps.isNotEmpty ? 'https://maps.google.com/?q=${zone.gps}' : 'N/
                         itemBuilder: (context, index) {
                           final zone = filteredZones[index];
                           final bool hasGps = zone.gps.isNotEmpty;
+
                           return Card(
                             elevation: 2,
                             child: ListTile(
@@ -1470,13 +1257,16 @@ Map Link: ${zone.gps.isNotEmpty ? 'https://maps.google.com/?q=${zone.gps}' : 'N/
     );
   }
 }
+
 // --- NEW SCREEN: Zone Entry/Edit Form ---
 class ZoneEntryScreen extends StatefulWidget {
   final WifiZone? zone;
   const ZoneEntryScreen({super.key, this.zone});
+
   @override
   State<ZoneEntryScreen> createState() => _ZoneEntryScreenState();
 }
+
 class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _zoneIdController;
@@ -1487,6 +1277,7 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
   late TextEditingController _gpsController;
   late String _status;
   bool _isFetchingLocation = false; // GPS ফেচিং স্ট্যাটাস
+
   @override
   void initState() {
     super.initState();
@@ -1499,22 +1290,26 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
     _gpsController = TextEditingController(text: isEditing ? widget.zone!.gps : '');
     _status = isEditing ? widget.zone!.status : 'Active';
   }
+
   // --- আপডেট করা ফাংশন: GPS লোকেশন ফেচ করা (Real-time logic) ---
   Future<void> _getCurrentLocation() async {
     if (!mounted) return;
+
     setState(() {
       _isFetchingLocation = true;
       _gpsController.text = 'Fetching...'; // Show immediate feedback
     });
+
     try {
       // ** Start of REAL GEOLOCATOR LOGIC **
+
       // 1. Check if location service is enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('লোকেশন সার্ভিস বন্ধ আছে। এটি চালু করুন।')));
         return;
       }
-     
+      
       // 2. Check and request permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -1524,13 +1319,16 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
           return;
         }
       }
-     
+      
       // 3. Get the current position
-      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high); // Use correct enum value
       String coordinates = "${position.latitude}, ${position.longitude}";
+
       // ** End of REAL GEOLOCATOR LOGIC **
+
       _gpsController.text = coordinates;
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('লোকেশন সফলভাবে যুক্ত হয়েছে।')));
+
     } catch (e) {
       _gpsController.text = ''; // Clear on error
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('লোকেশন ফেচ করতে সমস্যা হয়েছে। Error: $e')));
@@ -1543,15 +1341,19 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
     }
   }
   // --- GPS ফাংশন শেষ ---
+
+
   Future<void> _saveZone() async {
     if (_formKey.currentState!.validate()) {
       final prefs = await SharedPreferences.getInstance();
       List<WifiZone> zones = [];
       String? zonesJson = prefs.getString(AppConfig.wifiZones);
+
       if (zonesJson != null) {
         List<dynamic> decoded = jsonDecode(zonesJson);
         zones = decoded.map((e) => WifiZone.fromJson(e)).toList();
       }
+
       if (widget.zone != null) {
         // Edit existing zone
         final index = zones.indexWhere((z) => z.id == widget.zone!.id);
@@ -1578,14 +1380,16 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
         );
         zones.add(newZone);
       }
+
       await prefs.setString(AppConfig.wifiZones, jsonEncode(zones.map((e) => e.toJson()).toList()));
-     
+      
       if(mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(widget.zone != null ? "জোন আপডেট হয়েছে।" : "নতুন জোন যুক্ত হয়েছে।")));
         Navigator.pop(context);
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1633,7 +1437,7 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
                 keyboardType: TextInputType.text,
               ),
               const SizedBox(height: 15),
-             
+              
               // GPS Field with Location Fetch Button
               TextField(
                 controller: _gpsController,
@@ -1655,9 +1459,9 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
                 ),
                 keyboardType: TextInputType.text,
               ),
-             
+              
               const SizedBox(height: 20),
-             
+              
               // Status Dropdown
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1686,6 +1490,7 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
                   ),
                 ),
               ),
+              
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
