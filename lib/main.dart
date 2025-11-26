@@ -8,6 +8,7 @@
 // path_provider: ^2.1.1
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
@@ -429,7 +430,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("Stock ম্যানেজ করুন ($price Tk)", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
+        title: Text("স্টক ম্যানেজ করুন ($price Tk)", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -562,7 +563,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         alignment: BarChartAlignment.spaceAround,
                         // Ensure maxY scales correctly even if all values are 0
                         maxY: (weeklyChartData.reduce((a, b) => a > b ? a : b)) == 0 ? 10 : weeklyChartData.reduce((a, b) => a > b ? a : b) * 1.2,
-                        barTouchData: BarTouchData(enabled: true, touchTooltipData: BarTouchTooltipData(getTooltipColor: (group) => const Color(0xFF0047AB))),
+                        barTouchData: BarTouchData(
+                          enabled: true,
+                          touchTooltipData: BarTouchTooltipData(
+                            getTooltipColor: (group) => Colors.black.withOpacity(0.8),
+                            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                              return BarTooltipItem(
+                                rod.toY.toStringAsFixed(0),
+                                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                              );
+                            },
+                          ),
+                        ),
                         titlesData: FlTitlesData(
                           show: true,
                           bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, meta) => Padding(padding: const EdgeInsets.only(top: 10), child: Text(weekDaysLabels.length > val.toInt() ? weekDaysLabels[val.toInt()] : '', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))))),
@@ -626,23 +638,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         onTap: () => _showManageStockDialog(price),
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            gradient: LinearGradient(
+                              colors: qty < 10 ? [Colors.red.shade50, Colors.red.shade100] : [const Color(0xFFCAF0F8), const Color(0xFFF0F9FF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: qty < 10 ? Colors.red.shade200 : const Color(0xFFCAF0F8)),
-                            boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 5)],
+                            boxShadow: [
+                              BoxShadow(
+                                color: qty < 10 ? Colors.red.withOpacity(0.2) : const Color(0xFF0047AB).withOpacity(0.1),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(color: const Color(0xFFF0F9FF), shape: BoxShape.circle),
-                                child: Icon(Icons.wifi, color: qty < 10 ? Colors.red : const Color(0xFF0047AB), size: 20),
+                              CircleAvatar(
+                                radius: 20,
+                                backgroundColor: qty < 10 ? Colors.red.shade100 : const Color(0xFF0047AB).withOpacity(0.1),
+                                child: Icon(Icons.credit_card, color: qty < 10 ? Colors.red : const Color(0xFF0047AB), size: 24),
                               ),
-                              const SizedBox(height: 8),
-                              Text("$price Tk", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              const SizedBox(height: 12),
+                              Text("$price Tk", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: qty < 10 ? Colors.red.shade800 : const Color(0xFF0047AB))),
                               const SizedBox(height: 4),
-                              Text("$qty pcs", style: TextStyle(color: qty < 10 ? Colors.red : const Color(0xFF64748B), fontWeight: FontWeight.w500, fontSize: 12)),
+                              Text("$qty pcs", style: TextStyle(color: qty < 10 ? Colors.red.shade600 : const Color(0xFF0F172A), fontWeight: FontWeight.w600, fontSize: 13)),
                             ],
                           ),
                         ),
@@ -759,7 +780,12 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFFCAF0F8))),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFCAF0F8)),
+                      boxShadow: [BoxShadow(color: const Color(0xFF0047AB).withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+                    ),
                     child: Column(
                       children: [
                         Autocomplete<String>(
@@ -772,7 +798,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -780,40 +806,52 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                     separatorBuilder: (ctx, i) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       int price = cardPrices[index]; int subTotal = price * (_quantities[price] ?? 0); int stockQty = stock[price.toString()] ?? 0; if (!_controllers.containsKey(price)) return const SizedBox();
-                      return Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFF0F9FF))),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              decoration: BoxDecoration(color: const Color(0xFFF0F9FF), borderRadius: BorderRadius.circular(12)),
-                              child: Text('$price', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Color(0xFF0047AB))),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(stockQty > 0 ? 'স্টকে আছে' : 'স্টক শেষ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: stockQty > 0 ? const Color(0xFF00B4D8) : Colors.red)),
-                                  Text('$stockQty টি বাকি', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                                ],
+                      return Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(colors: [Color(0xFF0047AB), Color(0xFF00B4D8)]),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text('$price', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white)),
                               ),
-                            ),
-                            SizedBox(
-                              width: 80,
-                              child: TextField(
-                                controller: _controllers[price],
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0047AB)),
-                                decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(vertical: 8), isDense: true, filled: true, fillColor: Color(0xFFF0F9FF)),
-                                onChanged: (val) => _updateQuantity(price, val),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(stockQty > 0 ? 'স্টকে আছে' : 'স্টক শেষ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: stockQty > 0 ? const Color(0xFF00B4D8) : Colors.red)),
+                                    Text('$stockQty টি বাকি', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 15),
-                            SizedBox(width: 60, child: Text('$subTotal', textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)))),
-                          ],
+                              SizedBox(
+                                width: 80,
+                                child: TextField(
+                                  controller: _controllers[price],
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0047AB)),
+                                  decoration: InputDecoration(
+                                    contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: const Color(0xFFF0F9FF),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                  ),
+                                  onChanged: (val) => _updateQuantity(price, val),
+                                ),
+                              ),
+                              const SizedBox(width: 15),
+                              SizedBox(width: 60, child: Text('$subTotal', textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)))),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -1022,16 +1060,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await File(filePath).writeAsString(jsonData);
       await Share.shareXFiles([XFile(filePath)], text: 'WiFi Zone Manager Backup - $timestamp');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ব্যাকআপ সফলভাবে নেওয়া হয়েছে এবং শেয়ার করা হয়েছে।")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ব্যাকআপ সফলভাবে নেওয়া হয়েছে এবং শেয়ার করা হয়েছে।")));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("ব্যাকআপ নিতে সমস্যা: $e")));
       }
     }
-   }
+  }
  
-   Future<void> _restoreData() async {
+  Future<void> _restoreData() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
       if (result == null) return;
@@ -1059,57 +1097,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       final prefs = await SharedPreferences.getInstance();
       // Helper to set/remove string prefs
-      Future<void> handleString(String prefKey, String mapKey) async {
+      void handleString(String prefKey, String mapKey) {
         if (data.containsKey(mapKey)) {
           String? val = data[mapKey] as String?;
           if (val != null) {
-            await prefs.setString(prefKey, val);
+            prefs.setString(prefKey, val);
           } else {
-            await prefs.remove(prefKey);
+            prefs.remove(prefKey);
           }
         }
       }
       // Helper for double
-      Future<void> handleDouble(String prefKey, String mapKey) async {
+      void handleDouble(String prefKey, String mapKey) {
         if (data.containsKey(mapKey)) {
           num? val = data[mapKey] as num?;
           if (val != null) {
-            await prefs.setDouble(prefKey, val.toDouble());
+            prefs.setDouble(prefKey, val.toDouble());
           } else {
-            await prefs.remove(prefKey);
+            prefs.remove(prefKey);
           }
         }
       }
       // Helper for int
-      Future<void> handleInt(String prefKey, String mapKey) async {
+      void handleInt(String prefKey, String mapKey) {
         if (data.containsKey(mapKey)) {
           num? val = data[mapKey] as num?;
           if (val != null) {
-            await prefs.setInt(prefKey, val.toInt());
+            prefs.setInt(prefKey, val.toInt());
           } else {
-            await prefs.remove(prefKey);
+            prefs.remove(prefKey);
           }
         }
       }
       // Helper for string list
-      Future<void> handleStringList(String prefKey, String mapKey) async {
+      void handleStringList(String prefKey, String mapKey) {
         if (data.containsKey(mapKey)) {
           List<dynamic>? val = data[mapKey] as List<dynamic>?;
           if (val != null) {
-            await prefs.setStringList(prefKey, val.cast<String>());
+            prefs.setStringList(prefKey, val.cast<String>());
           } else {
-            await prefs.remove(prefKey);
+            prefs.remove(prefKey);
           }
         }
       }
-      await handleString(AppConfig.companyName, 'companyName');
-      await handleString(AppConfig.companyPhone, 'companyPhone');
-      await handleDouble(AppConfig.commissionRate, 'commissionRate');
-      await handleInt(AppConfig.invoiceCounter, 'invoiceCounter');
-      await handleStringList('saved_card_prices', 'savedCardPrices');
-      await handleString('card_stock', 'cardStock');
-      await handleString('sales_history', 'salesHistory');
-      await handleString(AppConfig.wifiZones, 'wifiZones');
+      handleString(AppConfig.companyName, 'companyName');
+      handleString(AppConfig.companyPhone, 'companyPhone');
+      handleDouble(AppConfig.commissionRate, 'commissionRate');
+      handleInt(AppConfig.invoiceCounter, 'invoiceCounter');
+      handleStringList('saved_card_prices', 'savedCardPrices');
+      handleString('card_stock', 'cardStock');
+      handleString('sales_history', 'salesHistory');
+      handleString(AppConfig.wifiZones, 'wifiZones');
       // Logo handling
       if (data.containsKey('companyLogoBase64')) {
         String? b64 = data['companyLogoBase64'] as String?;
@@ -1119,9 +1157,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           String ext = (data['companyLogoExtension'] as String?) ?? 'png';
           String newPath = '${docDir.path}/company_logo.$ext';
           await File(newPath).writeAsBytes(bytes);
-          await prefs.setString(AppConfig.companyLogo, newPath);
+          prefs.setString(AppConfig.companyLogo, newPath);
         } else {
-          await prefs.remove(AppConfig.companyLogo);
+          prefs.remove(AppConfig.companyLogo);
         }
       }
       if (mounted) {
@@ -1133,7 +1171,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("রিস্টোরে সমস্যা: $e")));
       }
     }
-   }
+  }
  
   @override
   Widget build(BuildContext context) {
@@ -1169,8 +1207,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 10),
             TextField(controller: _commissionCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "কমিশন %", prefixIcon: Icon(Icons.percent))),
             const SizedBox(height: 30),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("কার্ডের দাম", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))), IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF0047AB)), onPressed: () => showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("কার্ডের দাম যোগ করুন"), content: TextField(controller: _addController, keyboardType: TextInputType.number), actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("বাতিল")), ElevatedButton(onPressed: _addPrice, child: const Text("যোগ করুন"))]))) ]),
-            ..._prices.map((p) => ListTile(title: Text("$p Tk"), trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => _prices.remove(p))))),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("কার্ডের দাম", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
+                IconButton(
+                  icon: const Icon(Icons.add_circle, color: Color(0xFF0047AB), size: 28),
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      title: const Text("কার্ডের দাম যোগ করুন", style: TextStyle(color: Color(0xFF0047AB))),
+                      content: TextField(
+                        controller: _addController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: "দাম লিখুন (Tk)",
+                          prefixIcon: const Icon(Icons.attach_money),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        autofocus: true,
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(c), child: const Text("বাতিল", style: TextStyle(color: Colors.grey))),
+                        ElevatedButton(
+                          onPressed: _addPrice,
+                          child: const Text("যোগ করুন"),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Beautiful Card Prices List
+            if (_prices.isEmpty)
+              const Center(
+                child: Text("কোনো কার্ডের দাম যোগ করা হয়নি", style: TextStyle(color: Colors.grey)),
+              )
+            else
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  childAspectRatio: 1.2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: _prices.length,
+                itemBuilder: (context, index) {
+                  int p = _prices[index];
+                  return Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.credit_card, color: Color(0xFF0047AB), size: 24),
+                              const SizedBox(height: 8),
+                              Text("$p Tk", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
+                            ],
+                          ),
+                        ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            onPressed: () => setState(() => _prices.remove(p)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             const SizedBox(height: 20),
             SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _saveSettings, child: const Text("সংরক্ষণ করুন"))),
             const SizedBox(height: 30),
@@ -1264,7 +1380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    "Version 1.1.3",
+                    "Version 1.0.0",
                     style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.8)),
                   ),
                   ),
@@ -1292,17 +1408,89 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
   List<WifiZone> filteredZones = [];
   bool _isLoading = true;
   final TextEditingController _searchController = TextEditingController();
+  Position? _currentPosition;
+  Map<String, double> _distances = {};
+  StreamSubscription<Position>? _positionSubscription;
   @override
   void initState() {
     super.initState();
+    _initLocationStream();
     _loadZones();
     _searchController.addListener(_filterZones);
   }
   @override
   void dispose() {
+    _positionSubscription?.cancel();
     _searchController.removeListener(_filterZones);
     _searchController.dispose();
     super.dispose();
+  }
+  Future<void> _initLocationStream() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      // Optionally show dialog to enable location services
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        // Show message to user
+        return;
+      }
+    }
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+
+    _positionSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
+      _currentPosition = position;
+      _calculateDistances();
+    });
+  }
+  void _calculateDistances() {
+    if (_currentPosition == null) return;
+
+    Map<String, double> newDistances = {};
+    for (var zone in allZones) {
+      if (zone.gps.isNotEmpty) {
+        final parts = zone.gps.split(',');
+        if (parts.length == 2) {
+          final lat = double.tryParse(parts[0].trim());
+          final lng = double.tryParse(parts[1].trim());
+          if (lat != null && lng != null) {
+            final distance = Geolocator.distanceBetween(
+              _currentPosition!.latitude,
+              _currentPosition!.longitude,
+              lat,
+              lng,
+            );
+            newDistances[zone.id] = distance;
+          }
+        }
+      }
+    }
+
+    setState(() {
+      _distances = newDistances;
+    });
+  }
+  String _getDistanceText(WifiZone zone) {
+    if (zone.gps.isEmpty || _currentPosition == null) return '';
+
+    double? d = _distances[zone.id];
+    if (d == null) return ' | Calculating...';
+
+    String distStr;
+    if (d < 1000) {
+      distStr = '${d.toStringAsFixed(0)} m';
+    } else {
+      distStr = '${(d / 1000).toStringAsFixed(1)} km';
+    }
+    return ' | $distStr';
   }
   Future<void> _loadZones() async {
     final prefs = await SharedPreferences.getInstance();
@@ -1313,6 +1501,7 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
     }
     _filterZones(); // Initial filtering to show all zones
     setState(() => _isLoading = false);
+    _calculateDistances(); // Initial calculation if position available
   }
   void _filterZones() {
     final query = _searchController.text.toLowerCase();
@@ -1342,12 +1531,32 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
     _saveZones();
   }
   void _deleteZone(WifiZone zone) {
-    setState(() {
-      allZones.removeWhere((z) => z.id == zone.id);
-      _filterZones();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("মুছে ফেলার নিশ্চিতকরণ"),
+        content: const Text("আপনি কি সত্যিই এই জোনটি মুছে ফেলতে চান?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("না"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("হ্যাঁ"),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true) {
+        setState(() {
+          allZones.removeWhere((z) => z.id == zone.id);
+          _filterZones();
+        });
+        _saveZones();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("জোনটি মুছে ফেলা হয়েছে।")));
+      }
     });
-    _saveZones();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("জোনটি মুছে ফেলা হয়েছে।")));
   }
   void _shareZone(WifiZone zone) {
     final shareText = """
@@ -1427,7 +1636,17 @@ Map Link: ${zone.gps.isNotEmpty ? 'https://maps.google.com/?q=${zone.gps}' : 'N/
                                 child: Icon(Icons.wifi_rounded, color: zone.status == 'Active' ? const Color(0xFF0047AB) : Colors.red.shade600),
                               ),
                               title: Text(zone.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text("ID: ${zone.zoneId} | ${zone.address}", overflow: TextOverflow.ellipsis),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("ID: ${zone.zoneId} | ${zone.address}", overflow: TextOverflow.ellipsis),
+                                  if (_getDistanceText(zone).isNotEmpty)
+                                    Text(
+                                      _getDistanceText(zone).replaceFirst(' |', ''),
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                ],
+                              ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
