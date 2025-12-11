@@ -353,6 +353,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<double> weeklyChartData = List.filled(7, 0.0);
   List<String> weekDaysLabels = [];
   bool _isLoading = true;
+  double totalStockValue = 0.0;
   @override
   void initState() {
     super.initState();
@@ -381,6 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       history = decoded.map((e) => SaleRecord.fromJson(e)).toList();
     }
     _calculateReports(history);
+    _calculateTotalStock();
     setState(() => _isLoading = false);
   }
   void _calculateReports(List<SaleRecord> history) {
@@ -421,6 +423,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     salesSummary['Weekly'] = weeklyTotal;
     salesSummary['Monthly'] = monthlyTotal;
     cardWiseSales = tempCardSales;
+  }
+  void _calculateTotalStock() {
+    totalStockValue = 0.0;
+    for (var price in cardPrices) {
+      totalStockValue += price * (stock[price.toString()] ?? 0);
+    }
   }
   // --- Stock Management Dialog (ADD/UPDATE) ---
   void _showManageStockDialog(String price) {
@@ -485,6 +493,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         stock[price] = (stock[price] ?? 0) + qty;
       }
+      _calculateTotalStock();
     });
     await prefs.setString('card_stock', jsonEncode(stock));
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isOverwrite ? "স্টক সংশোধন করা হয়েছে (Updated)!" : "স্টক যোগ করা হয়েছে (Added)!")));
@@ -547,6 +556,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       _buildSummaryCard("এই মাস", salesSummary['Monthly']!, const Color(0xFF00B4D8)),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  _buildFullSummaryCard("মোট স্টক মূল্য", totalStockValue, const Color(0xFF00296B)),
                   const SizedBox(height: 24),
                   const Text("সাপ্তাহিক রেভিনিউ", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0047AB))),
                   const SizedBox(height: 12),
@@ -680,38 +691,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
   Widget _buildSummaryCard(String title, double amount, Color accentColor) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [accentColor, accentColor.withOpacity(0.8)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+      child: _summaryCardContent(title, amount, accentColor),
+    );
+  }
+  Widget _buildFullSummaryCard(String title, double amount, Color accentColor) {
+    return _summaryCardContent(title, amount, accentColor);
+  }
+  Widget _summaryCardContent(String title, double amount, Color accentColor) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [accentColor, accentColor.withOpacity(0.8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: accentColor.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.attach_money, color: Colors.white, size: 16),
+              ),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+            ],
           ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: accentColor.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.attach_money, color: Colors.white, size: 16),
-                ),
-                const SizedBox(width: 8),
-                Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              amount >= 1000 ? "${(amount/1000).toStringAsFixed(1)}k" : amount.toStringAsFixed(0),
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white),
-            ),
-          ],
-        ),
+          const SizedBox(height: 12),
+          Text(
+            amount >= 1000 ? "${(amount/1000).toStringAsFixed(1)}k" : amount.toStringAsFixed(0),
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white),
+          ),
+        ],
       ),
     );
   }
