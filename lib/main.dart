@@ -7,10 +7,15 @@
 // file_picker: ^6.1.1
 // path_provider: ^2.1.1
 import 'dart:convert';
-import 'dart:io';
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart' as prefs;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -18,12 +23,196 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
+
+String? _firebaseInitializationError;
+
+class SharedPreferences {
+  final prefs.SharedPreferences _local;
+  static StreamSubscription<DocumentSnapshot>? _firestoreSubscription;
+
+  SharedPreferences._(this._local);
+
+  static Future<SharedPreferences> getInstance() async {
+    final local = await prefs.SharedPreferences.getInstance();
+    if (Firebase.apps.isNotEmpty) {
+      _backgroundRefresh(local);
+    }
+    return SharedPreferences._(local);
+  }
+
+  static Future<void> _backgroundRefresh(prefs.SharedPreferences local) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('wifihaat').doc('app_data').get();
+      final data = snapshot.data();
+      if (data != null) {
+        for (final entry in data.entries) {
+          final key = entry.key;
+          final value = entry.value;
+          if (value is String) {
+            final current = local.getString(key);
+            if (current != value) await local.setString(key, value);
+          } else if (value is bool) {
+            final current = local.getBool(key);
+            if (current != value) await local.setBool(key, value);
+          } else if (value is int) {
+            final current = local.getInt(key);
+            if (current != value) await local.setInt(key, value);
+          } else if (value is double) {
+            final current = local.getDouble(key);
+            if (current != value) await local.setDouble(key, value);
+          } else if (value is List) {
+            final current = local.getStringList(key);
+            final listValue = value.cast<String>();
+            if (current != listValue) await local.setStringList(key, listValue);
+          }
+        }
+      }
+    } catch (error) {
+      debugPrint('Firebase background refresh failed: $error');
+    }
+  }
+
+  static Future<void> refresh() async {
+    final local = await prefs.SharedPreferences.getInstance();
+    await _backgroundRefresh(local);
+  }
+
+  static void startFirestoreListener() {
+    if (_firestoreSubscription != null) return;
+    _firestoreSubscription = FirebaseFirestore.instance
+        .collection('wifihaat')
+        .doc('app_data')
+        .snapshots()
+        .listen((snapshot) {
+      _applyFirestoreData(snapshot.data());
+    });
+  }
+
+  static Future<void> _applyFirestoreData(Map<String, dynamic>? data) async {
+    if (data == null) return;
+    try {
+      final local = await prefs.SharedPreferences.getInstance();
+      for (final entry in data.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        if (value is String) {
+          final current = local.getString(key);
+          if (current != value) await local.setString(key, value);
+        } else if (value is bool) {
+          final current = local.getBool(key);
+          if (current != value) await local.setBool(key, value);
+        } else if (value is int) {
+          final current = local.getInt(key);
+          if (current != value) await local.setInt(key, value);
+        } else if (value is double) {
+          final current = local.getDouble(key);
+          if (current != value) await local.setDouble(key, value);
+        } else if (value is List) {
+          final current = local.getStringList(key);
+          final listValue = value.cast<String>();
+          if (current != listValue) await local.setStringList(key, listValue);
+        }
+      }
+    } catch (error) {
+      debugPrint('Firestore listener update failed: $error');
+    }
+  }
+
+  String? getString(String key) => _local.getString(key);
+  List<String>? getStringList(String key) => _local.getStringList(key);
+  double? getDouble(String key) => _local.getDouble(key);
+  int? getInt(String key) => _local.getInt(key);
+
+  Future<void> _sync(String key, Object? value) async {
+    if (Firebase.apps.isEmpty) return;
+    try {
+      await FirebaseFirestore.instance.collection('wifihaat').doc('app_data').set({key: value}, SetOptions(merge: true));
+    } catch (error) {
+      debugPrint('Firebase write skipped: $error');
+    }
+  }
+
+  Future<bool> setString(String key, String value) async {
+    final result = await _local.setString(key, value);
+    await _sync(key, value);
+    return result;
+  }
+  Future<bool> setStringList(String key, List<String> value) async {
+    final result = await _local.setStringList(key, value);
+    await _sync(key, value);
+    return result;
+  }
+  Future<bool> setDouble(String key, double value) async {
+    final result = await _local.setDouble(key, value);
+    await _sync(key, value);
+    return result;
+  }
+  Future<bool> setInt(String key, int value) async {
+    final result = await _local.setInt(key, value);
+    await _sync(key, value);
+    return result;
+  }
+  Future<bool> remove(String key) async {
+    final result = await _local.remove(key);
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance.collection('wifihaat').doc('app_data').update({key: FieldValue.delete()});
+      } catch (error) {
+        debugPrint('Firebase delete skipped: $error');
+      }
+    }
+    return result;
+  }
+}
+
+Future<void> _initializeFirebase() async {
+  try {
+    if (kIsWeb) {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.web);
+    } else {
+      await Firebase.initializeApp();
+    }
+    SharedPreferences.startFirestoreListener();
+  } catch (error) {
+    _firebaseInitializationError = error.toString();
+    debugPrint('Firebase is not configured: $error');
+  }
+}
 // ** NOTE: Uncomment this if you have added image_cropper to pubspec.yaml **
 // import 'package:image_cropper/image_cropper.dart';
-void main() {
+class FirebaseLoadingScreen extends StatelessWidget {
+  const FirebaseLoadingScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('চলছে...', style: TextStyle(color: Colors.grey[600])),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const WifiCardApp());
 }
+
+ImageProvider? _logoImage(String? encodedLogo) {
+  if (encodedLogo == null || encodedLogo.isEmpty) return null;
+  try {
+    return MemoryImage(Uint8List.fromList(base64Decode(encodedLogo)));
+  } catch (_) {
+    return null;
+  }
+}
+
 class WifiCardApp extends StatelessWidget {
   const WifiCardApp({super.key});
   @override
@@ -84,109 +273,706 @@ class WifiCardApp extends StatelessWidget {
           labelStyle: TextStyle(color: const Color(0xFF0047AB).withOpacity(0.7)),
         ),
       ),
-      home: const HomeScreen(),
+      home: const AuthGate(),
     );
   }
 }
+
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+class _AuthGateState extends State<AuthGate> {
+  bool _firebaseReady = false;
+  String? _firebaseError;
+
+  @override
+  void initState() {
+    super.initState();
+    _initFirebaseWithTimeout();
+  }
+
+  Future<void> _initFirebaseWithTimeout() async {
+    try {
+      final timeout = Future.delayed(const Duration(seconds: 30));
+      final init = _initializeFirebase();
+      final result = await Future.any([init, timeout]);
+      if (result == timeout) {
+        setState(() => _firebaseError = 'Firebase সার্ভারে সংযোগ করতে সময় শেষ হয়েছে।');
+      } else {
+        setState(() => _firebaseReady = true);
+      }
+    } catch (e) {
+      setState(() => _firebaseError = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_firebaseReady && _firebaseError == null) {
+      return const FirebaseLoadingScreen();
+    }
+    if (_firebaseError != null) {
+      debugPrint('Firebase init error: $_firebaseError');
+    }
+    if (Firebase.apps.isEmpty) return const LoginScreen();
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        return snapshot.data == null ? const LoginScreen() : const HomeScreen();
+      },
+    );
+  }
+}
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _loading = false;
+  bool _obscurePassword = true;
+  String? _error;
+  late final AnimationController _logoAnimCtrl;
+  late final Animation<double> _logoPulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _logoAnimCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    _logoPulse = Tween<double>(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(parent: _logoAnimCtrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _logoAnimCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _error = 'ইমেইল এবং পাসওয়ার্ড দিন।');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (error) {
+      setState(() => _error = switch (error.code) {
+            'invalid-credential' || 'wrong-password' || 'user-not-found' =>
+                'ইমেইল বা পাসওয়ার্ড সঠিক নয়।',
+            'operation-not-allowed' =>
+                'Firebase Console-এ Email/Password sign-in চালু করুন।',
+            'invalid-email' => 'সঠিক email address লিখুন।',
+            'user-disabled' => 'এই admin account বন্ধ করা আছে।',
+            'too-many-requests' =>
+                'অনেকবার চেষ্টা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
+            _ => 'লগইন করা যায়নি (${error.code})। আবার চেষ্টা করুন।',
+          });
+    } catch (_) {
+      setState(() => _error = Firebase.apps.isEmpty
+          ? 'Firebase চালু হয়নি: ${_firebaseInitializationError ?? 'configuration error'}'
+          : 'লগইন সেবায় সংযোগ করা যাচ্ছে না। আবার চেষ্টা করুন।');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0047AB), Color(0xFF00296B)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24, vertical: 40),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AnimatedBuilder(
+                      animation: _logoPulse,
+                      builder: (_, child) => Center(
+                        child: Transform.scale(
+                          scale: _logoPulse.value,
+                          child: CircleAvatar(
+                            radius: 40,
+                            backgroundColor: Colors.white.withOpacity(0.2),
+                            child: const Icon(Icons.wifi,
+                                size: 48, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'WiFi Zone Manager',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Admin login',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 16),
+                    ),
+                    const SizedBox(height: 40),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                            sigmaX: 10, sigmaY: 10),
+                        child: Container(
+                          padding: const EdgeInsets.all(28),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.2)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              TextField(
+                                controller: _emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: InputDecoration(
+                                  labelText: 'Admin email',
+                                  labelStyle: TextStyle(
+                                      color: Colors.white.withOpacity(0.8)),
+                                  prefixIcon: Icon(Icons.email_outlined,
+                                      color: Colors.white.withOpacity(0.8)),
+                                  filled: true,
+                                  fillColor: Colors.white.withOpacity(0.1),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                        color: Colors.white.withOpacity(0.3)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(
+                                        color: Colors.white, width: 2),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: _passwordController,
+                                obscureText: _obscurePassword,
+                                onSubmitted: (_) => _login(),
+                                style: const TextStyle(color: Colors.white),
+                                decoration: InputDecoration(
+                                  labelText: 'Password',
+                                  labelStyle: TextStyle(
+                                      color: Colors.white.withOpacity(0.8)),
+                                  prefixIcon: Icon(Icons.lock_outline,
+                                      color: Colors.white.withOpacity(0.8)),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_outlined
+                                          : Icons.visibility_off_outlined,
+                                      color: Colors.white.withOpacity(0.8),
+                                    ),
+                                    onPressed: () => setState(
+                                        () => _obscurePassword =
+                                            !_obscurePassword),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white.withOpacity(0.1),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                        color: Colors.white.withOpacity(0.3)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(
+                                        color: Colors.white, width: 2),
+                                  ),
+                                ),
+                              ),
+                              if (_error != null) ...[
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.error_outline,
+                                          color: Colors.red.shade200, size: 20),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _error!,
+                                          style: TextStyle(
+                                            color: Colors.red.shade200,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                height: 52,
+                                child: ElevatedButton.icon(
+                                  onPressed: _loading ? null : _login,
+                                  icon: _loading
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white))
+                                      : const Icon(Icons.login,
+                                          color: Colors.white),
+                                  label: Text(
+                                    _loading ? 'লগইন হচ্ছে...' : 'লগইন করুন',
+                                    style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF0047AB)),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: const Color(0xFF0047AB),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    elevation: 4,
+                                    shadowColor:
+                                        const Color(0xFF0047AB).withOpacity(0.4),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  TextButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _error =
+                                            'Password reset link sent to your email.';
+                                      });
+                                    },
+                                    child: Text(
+                                      'পাসওয়ার্ড ভুলে গেছেন?',
+                                      style: TextStyle(
+                                          color: Colors.white.withOpacity(0.8),
+                                          decoration:
+                                              TextDecoration.underline),
+                                    ),
+                                  ),
+                                  const Text(' | ',
+                                      style: TextStyle(color: Colors.white54)),
+                                  TextButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _error = 'Sign up feature coming soon.';
+                                      });
+                                    },
+                                    child: Text(
+                                      'একাউন্ট আছে না?',
+                                      style: TextStyle(
+                                          color: Colors.white.withOpacity(0.8),
+                                          decoration:
+                                              TextDecoration.underline),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                      child: Divider(
+                                          height: 1,
+                                          color: Colors.white.withOpacity(0.2))),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    child: Text('অথবা',
+                                        style: TextStyle(
+                                            color: Colors.white.withOpacity(0.5),
+                                            fontSize: 12)),
+                                  ),
+                                  Expanded(
+                                      child: Divider(
+                                          height: 1,
+                                          color: Colors.white.withOpacity(0.2))),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _error = 'Google login coming soon.';
+                                      });
+                                    },
+                                    icon: Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.15),
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(Icons.g_mobiledata,
+                                          color: Colors.white, size: 26),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _error = 'Facebook login coming soon.';
+                                      });
+                                    },
+                                    icon: Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.15),
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(Icons.facebook,
+                                          color: Colors.white, size: 26),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'v1.0.0 · WiFi Zone Manager',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.5), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // --- Custom Modern Header Widget (With Logo) ---
-class ModernHeader extends StatelessWidget {
+class ModernHeader extends StatefulWidget {
   final String title;
   final String subtitle;
   final String? logoPath;
   final VoidCallback? onSettingsTap;
+  final VoidCallback? onNotificationsTap;
   const ModernHeader({
     super.key,
     required this.title,
     this.subtitle = "",
     this.logoPath,
     this.onSettingsTap,
+    this.onNotificationsTap,
   });
   @override
+  State<ModernHeader> createState() => _ModernHeaderState();
+}
+
+class _ModernHeaderState extends State<ModernHeader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shimmerCtrl;
+  late final Animation<double> _shimmer;
+  DateTime _currentTime = DateTime.now();
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _shimmerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    _shimmer = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut),
+    );
+    _timer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) setState(() => _currentTime = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _shimmerCtrl.dispose();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String get _formattedTime =>
+      '${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}';
+  String get _formattedDate =>
+      '${_currentTime.day} ${_monthNames[_currentTime.month]} ${_currentTime.year}';
+  static const _monthNames = [
+    '', 'জানু', 'ফেব্রু', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
+    'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+  ];
+
+  @override
   Widget build(BuildContext context) {
+    final logoImage = _logoImage(widget.logoPath);
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 60, 20, 30),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF0047AB), Color(0xFF00296B)],
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, 36),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0047AB), Color(0xFF00296B), Color(0xFF001A4D)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          stops: [0.0, 0.5, 1.0],
         ),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
-        boxShadow: [BoxShadow(color: Color(0x400047AB), blurRadius: 20, offset: Offset(0, 10))],
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x400047AB),
+            blurRadius: 25,
+            offset: const Offset(0, 12),
+          ),
+        ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Row(
-              children: [
-                // Logo Display
-                if (logoPath != null && logoPath!.isNotEmpty && File(logoPath!).existsSync())
-                  Container(
-                    margin: const EdgeInsets.only(right: 12),
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.25),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: Colors.white.withOpacity(0.4), width: 2),
+                ),
+                child: Center(
+                  child: Text(
+                    'A',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
                       color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      image: DecorationImage(
-                        image: FileImage(File(logoPath!)),
-                        fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Admin',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white.withOpacity(0.9),
                       ),
                     ),
-                  )
-                else
-                  Container(
-                    margin: const EdgeInsets.only(right: 12),
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
+                    Text(
+                      'admin@wifihaat.com',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white.withOpacity(0.5),
+                      ),
                     ),
-                    child: const Icon(Icons.wifi, color: Colors.white, size: 28),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _formattedTime,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
                   ),
-               
-                // Titles
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
+                  Text(
+                    _formattedDate,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 8),
+              if (widget.onNotificationsTap != null)
+                Stack(
+                  children: [
+                    IconButton(
+                      onPressed: widget.onNotificationsTap,
+                      icon: Icon(Icons.notifications_none,
+                          color: Colors.white.withOpacity(0.8), size: 22),
+                    ),
+                    Positioned(
+                      right: 4,
+                      top: 4,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade400,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              if (widget.onSettingsTap != null)
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.2)),
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.settings_outlined,
+                        color: Colors.white.withOpacity(0.8)),
+                    onPressed: widget.onSettingsTap,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              AnimatedBuilder(
+                animation: _shimmer,
+                builder: (_, child) => Transform.translate(
+                  offset: Offset(_shimmer.value * 8, 0),
+                  child: child,
+                ),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 14),
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.3), width: 2),
+                  ),
+                  child: logoImage != null
+                      ? ClipOval(
+                          child: Image(image: logoImage,
+                              fit: BoxFit.cover, width: 48, height: 48))
+                      : const Icon(Icons.wifi, color: Colors.white, size: 26),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ShaderMask(
+                      shaderCallback: (bounds) => const LinearGradient(
+                        colors: [Colors.white, Color(0xFFCAF0F8)],
+                      ).createShader(bounds),
+                      child: Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          letterSpacing: -0.5,
+                        ),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
                       ),
-                      if (subtitle.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(subtitle, style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.8), fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
+                    ),
+                    if (widget.subtitle.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          widget.subtitle,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.white.withOpacity(0.7),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          if (onSettingsTap != null)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white.withOpacity(0.3)),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                onPressed: onSettingsTap,
-              ),
-            ),
         ],
       ),
     );
   }
 }
+
 // --- Models ---
 class SaleRecord {
   final String invoiceNumber;
@@ -486,6 +1272,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   Future<void> _updateStock(String price, int qty, {required bool isOverwrite}) async {
+    await SharedPreferences.refresh();
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       if (isOverwrite) {
@@ -747,7 +1534,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   List<String> _retailerNames = [];
-  Map<String, String> _retailerPhoneMap = {};
+  final Map<String, String> _retailerPhoneMap = {};
   double _commissionRate = 10.0;
   bool _isLoading = true;
   @override
@@ -776,7 +1563,22 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     await _finalizeSale(newSale, soldItems);
     if (mounted) { showDialog(context: context, builder: (context) => InvoiceDialog(sale: newSale)); _clearAll(); final prefs = await SharedPreferences.getInstance(); String? stockJson = prefs.getString('card_stock'); if (stockJson != null) setState(() => stock = Map<String, int>.from(jsonDecode(stockJson))); }
   }
-  Future<void> _finalizeSale(SaleRecord sale, Map<String, int> soldItems) async { final prefs = await SharedPreferences.getInstance(); soldItems.forEach((price, qty) { if (stock.containsKey(price)) stock[price] = (stock[price] ?? 0) - qty; }); await prefs.setString('card_stock', jsonEncode(stock)); List<SaleRecord> history = []; String? existingHistory = prefs.getString('sales_history'); if (existingHistory != null) { List<dynamic> decoded = jsonDecode(existingHistory); history = decoded.map((e) => SaleRecord.fromJson(e)).toList(); } history.insert(0, sale); await prefs.setString('sales_history', jsonEncode(history.map((e) => e.toJson()).toList())); }
+  Future<void> _finalizeSale(SaleRecord sale, Map<String, int> soldItems) async {
+    await SharedPreferences.refresh();
+    final prefs = await SharedPreferences.getInstance();
+    soldItems.forEach((price, qty) {
+      if (stock.containsKey(price)) stock[price] = (stock[price] ?? 0) - qty;
+    });
+    await prefs.setString('card_stock', jsonEncode(stock));
+    List<SaleRecord> history = [];
+    String? existingHistory = prefs.getString('sales_history');
+    if (existingHistory != null) {
+      List<dynamic> decoded = jsonDecode(existingHistory);
+      history = decoded.map((e) => SaleRecord.fromJson(e)).toList();
+    }
+    history.insert(0, sale);
+    await prefs.setString('sales_history', jsonEncode(history.map((e) => e.toJson()).toList()));
+  }
   void _openSettings() async { await Navigator.push(context, MaterialPageRoute(builder: (context) => SettingsScreen(currentPrices: List.from(cardPrices)))); _loadData(); }
   @override
   Widget build(BuildContext context) {
@@ -907,7 +1709,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<SaleRecord> allHistory = []; List<SaleRecord> filteredHistory = []; TextEditingController searchController = TextEditingController();
   @override void initState() { super.initState(); _loadHistory(); }
   Future<void> _loadHistory() async { final prefs = await SharedPreferences.getInstance(); String? historyJson = prefs.getString('sales_history'); if (historyJson != null) { List<dynamic> decoded = jsonDecode(historyJson); setState(() { allHistory = decoded.map((e) => SaleRecord.fromJson(e)).toList(); filteredHistory = allHistory; }); } }
-  void _filterHistory(String query) { setState(() { if (query.isEmpty) filteredHistory = allHistory; else filteredHistory = allHistory.where((s) => s.invoiceNumber.toLowerCase().contains(query.toLowerCase()) || s.retailerName.toLowerCase().contains(query.toLowerCase())).toList(); }); }
+  void _filterHistory(String query) { setState(() { if (query.isEmpty) {
+    filteredHistory = allHistory;
+  } else {
+    filteredHistory = allHistory.where((s) => s.invoiceNumber.toLowerCase().contains(query.toLowerCase()) || s.retailerName.toLowerCase().contains(query.toLowerCase())).toList();
+  } }); }
   void _clearHistory() async { final prefs = await SharedPreferences.getInstance(); await prefs.remove('sales_history'); await prefs.remove(AppConfig.invoiceCounter); setState(() { allHistory = []; filteredHistory = []; }); }
   @override
   Widget build(BuildContext context) {
@@ -966,10 +1772,11 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
  
   @override
   Widget build(BuildContext context) {
+    final logoImage = _logoImage(logoPath);
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: Column(children: [
-        if(logoPath != null && File(logoPath!).existsSync()) CircleAvatar(backgroundImage: FileImage(File(logoPath!)), radius: 25, backgroundColor: Colors.transparent),
+        if(logoImage != null) CircleAvatar(backgroundImage: logoImage, radius: 25, backgroundColor: Colors.transparent),
         Text(companyName, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0047AB))), Text("ইনভয়েস #${widget.sale.invoiceNumber}", style: const TextStyle(fontSize: 12, color: Colors.grey))
       ]),
       content: SingleChildScrollView(
@@ -1004,7 +1811,7 @@ class SettingsScreen extends StatefulWidget {
 }
 class _SettingsScreenState extends State<SettingsScreen> {
   late List<int> _prices;
-  File? _logoFile;
+  Uint8List? _logoBytes;
   final _addController = TextEditingController(), _companyNameCtrl = TextEditingController(), _companyPhoneCtrl = TextEditingController(), _commissionCtrl = TextEditingController();
  
   @override void initState() { super.initState(); _prices = List.from(widget.currentPrices); _loadSettings(); }
@@ -1015,8 +1822,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _companyNameCtrl.text = prefs.getString(AppConfig.companyName) ?? "";
       _companyPhoneCtrl.text = prefs.getString(AppConfig.companyPhone) ?? "";
       _commissionCtrl.text = (prefs.getDouble(AppConfig.commissionRate) ?? 10.0).toString();
-      String? path = prefs.getString(AppConfig.companyLogo);
-      if(path != null) _logoFile = File(path);
+      final encodedLogo = prefs.getString(AppConfig.companyLogo);
+      if (encodedLogo != null && encodedLogo.isNotEmpty) {
+        _logoBytes = Uint8List.fromList(base64Decode(encodedLogo));
+      }
     });
   }
  
@@ -1024,8 +1833,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
+      final bytes = await image.readAsBytes();
       setState(() {
-        _logoFile = File(image.path);
+        _logoBytes = Uint8List.fromList(bytes);
       });
     }
   }
@@ -1037,8 +1847,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if(c!=null) await prefs.setDouble(AppConfig.commissionRate, c);
     await prefs.setStringList('saved_card_prices', _prices.map((e) => e.toString()).toList());
    
-    if (_logoFile != null) {
-      await prefs.setString(AppConfig.companyLogo, _logoFile!.path);
+    if (_logoBytes != null) {
+      await prefs.setString(AppConfig.companyLogo, base64Encode(_logoBytes!));
     }
     if(mounted){
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("সফলভাবে সংরক্ষণ করা হয়েছে!")));
@@ -1063,19 +1873,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       data['cardStock'] = prefs.getString('card_stock');
       data['salesHistory'] = prefs.getString('sales_history');
       data['wifiZones'] = prefs.getString(AppConfig.wifiZones);
-      String? logoPath = prefs.getString(AppConfig.companyLogo);
-      if (logoPath != null && await File(logoPath).exists()) {
-        List<int> bytes = await File(logoPath).readAsBytes();
-        data['companyLogoBase64'] = base64Encode(bytes);
-        String ext = logoPath.contains('.') ? logoPath.split('.').last : 'png';
-        data['companyLogoExtension'] = ext;
-      }
+      data['companyLogoBase64'] = prefs.getString(AppConfig.companyLogo);
       String jsonData = jsonEncode(data);
-      Directory docDir = await getApplicationDocumentsDirectory();
       String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      String filePath = '${docDir.path}/wifi_zone_backup_$timestamp.json';
-      await File(filePath).writeAsString(jsonData);
-      await Share.shareXFiles([XFile(filePath)], text: 'WiFi Zone Manager Backup - $timestamp');
+      final backupFile = XFile.fromData(
+        Uint8List.fromList(utf8.encode(jsonData)),
+        name: 'wifi_zone_backup_$timestamp.json',
+        mimeType: 'application/json',
+      );
+      await Share.shareXFiles([backupFile], text: 'WiFi Zone Manager Backup - $timestamp');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ব্যাকআপ সফলভাবে নেওয়া হয়েছে এবং শেয়ার করা হয়েছে।")));
       }
@@ -1088,7 +1894,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
  
   Future<void> _restoreData() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json'], withData: true);
       if (result == null) return;
       bool? confirm = await showDialog<bool>(
         context: context,
@@ -1102,8 +1908,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
       if (confirm != true) return;
-      String filePath = result.files.single.path!;
-      String jsonData = await File(filePath).readAsString();
+      final fileBytes = result.files.single.bytes;
+      if (fileBytes == null) throw 'ব্যাকআপ ফাইল পড়া যাচ্ছে না।';
+      String jsonData = utf8.decode(fileBytes);
       Map<String, dynamic> data = jsonDecode(jsonData);
       if (data['backupMarker'] != 'WifiZoneManagerBackup') {
         throw 'অবৈধ ব্যাকআপ ফাইল: মার্কার মিলছে না।';
@@ -1170,11 +1977,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         String? b64 = data['companyLogoBase64'] as String?;
         if (b64 != null && b64.isNotEmpty) {
           List<int> bytes = base64Decode(b64);
-          Directory docDir = await getApplicationDocumentsDirectory();
-          String ext = (data['companyLogoExtension'] as String?) ?? 'png';
-          String newPath = '${docDir.path}/company_logo.$ext';
-          await File(newPath).writeAsBytes(bytes);
-          prefs.setString(AppConfig.companyLogo, newPath);
+          await prefs.setString(AppConfig.companyLogo, base64Encode(bytes));
         } else {
           prefs.remove(AppConfig.companyLogo);
         }
@@ -1206,8 +2009,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: CircleAvatar(
                   radius: 50,
                   backgroundColor: Colors.grey.shade200,
-                  backgroundImage: _logoFile != null ? FileImage(_logoFile!) : null,
-                  child: _logoFile == null ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey) : null,
+                  backgroundImage: _logoBytes != null ? MemoryImage(_logoBytes!) : null,
+                  child: _logoBytes == null ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey) : null,
                 ),
               ),
             ),
@@ -1315,6 +2118,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(width: 10),
                 Expanded(child: ElevatedButton.icon(onPressed: _restoreData, icon: const Icon(Icons.restore), label: const Text("রিস্টোর করুন"))),
               ],
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  await FirebaseAuth.instance.signOut();
+                  if (mounted) Navigator.pop(context);
+                },
+                icon: const Icon(Icons.logout),
+                label: const Text("Admin logout"),
+              ),
             ),
             // --- NEW DEVELOPER INFO SECTION (Modern Look) ---
             const SizedBox(height: 30),
