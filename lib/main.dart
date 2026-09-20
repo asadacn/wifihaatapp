@@ -65,6 +65,7 @@ class AppConfig {
   static const String savedCardPrices = 'saved_card_prices';
   static const String cardStock = 'card_stock';
   static const String salesHistory = 'sales_history';
+  static const String dealers = 'dealers';
 
   static const int lowStockLimit = 10;
   static const List<int> defaultPrices = [9, 15, 25, 50, 89, 249];
@@ -79,6 +80,7 @@ class AppConfig {
     savedCardPrices,
     cardStock,
     salesHistory,
+    dealers,
   ];
 }
 
@@ -534,6 +536,32 @@ class AppPrefs {
 
   Future<void> saveZones(List<WifiZone> zones) => setString(
       AppConfig.wifiZones, jsonEncode(zones.map((e) => e.toJson()).toList()));
+
+  // ---- dealers -------------------------------------------------------------
+  List<Dealer> dealers() {
+    final s = getString(AppConfig.dealers);
+    if (s == null) return [];
+    try {
+      final l = jsonDecode(s) as List;
+      return l
+          .map((e) => Dealer.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveDealers(List<Dealer> dealers) => setString(
+      AppConfig.dealers, jsonEncode(dealers.map((e) => e.toJson()).toList()));
+
+  /// ডিলার লিস্ট। ফিচার প্রথমবার চালু হলে পুরনো বিক্রয় ইতিহাস থেকে বানিয়ে নেয়।
+  /// (নতুন বিক্রয় সেভ করার আগে কল করতে হবে, নাহলে ভিজিট দুইবার গোনা হবে)
+  Future<List<Dealer>> ensureDealers() async {
+    if (getString(AppConfig.dealers) != null) return dealers();
+    final built = buildDealersFromHistory(history());
+    if (built.isNotEmpty) await saveDealers(built);
+    return built;
+  }
 }
 
 Future<bool> _initializeFirebase() async {
@@ -660,19 +688,167 @@ class WifiCardApp extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Auth gate
 // ---------------------------------------------------------------------------
-class FirebaseLoadingScreen extends StatelessWidget {
+const double _kPi = 3.141592653589793;
+
+/// WiFi সিগন্যালের মতো একটা একটা করে জ্বলে ওঠা অ্যানিমেশন
+class WifiLoader extends StatefulWidget {
+  final double size;
+  final Color color;
+  const WifiLoader({super.key, this.size = 140, this.color = Colors.white});
+  @override
+  State<WifiLoader> createState() => _WifiLoaderState();
+}
+
+class _WifiLoaderState extends State<WifiLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1800))
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) => CustomPaint(
+        size: Size(widget.size, widget.size * 0.75),
+        painter: _WifiPainter(_c.value, widget.color),
+      ),
+    );
+  }
+}
+
+class _WifiPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  _WifiPainter(this.progress, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height * 0.88;
+    final maxR = size.height * 0.82;
+    final stroke = size.width * 0.055;
+    final t = progress * 4.0; // 0..4 : ডট, আর্ক১, আর্ক২, আর্ক৩
+    final double fade = progress > 0.85
+        ? ((1 - progress) / 0.15).clamp(0.0, 1.0).toDouble()
+        : 1.0;
+
+    for (int i = 0; i < 3; i++) {
+      final double lit = (t - i).clamp(0.0, 1.0).toDouble() * fade;
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..color = color.o(0.18 + 0.82 * lit);
+      final r = maxR * (0.36 + 0.32 * i);
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(cx, cy), radius: r),
+        -3 * _kPi / 4,
+        _kPi / 2,
+        false,
+        paint,
+      );
+    }
+    canvas.drawCircle(Offset(cx, cy), stroke * 0.95, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_WifiPainter old) =>
+      old.progress != progress || old.color != color;
+}
+
+class FirebaseLoadingScreen extends StatefulWidget {
   const FirebaseLoadingScreen({super.key});
+  @override
+  State<FirebaseLoadingScreen> createState() => _FirebaseLoadingScreenState();
+}
+
+class _FirebaseLoadingScreenState extends State<FirebaseLoadingScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _dots;
+
+  @override
+  void initState() {
+    super.initState();
+    _dots = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1200))
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    _dots.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text('চলছে...', style: TextStyle(color: Colors.grey[600])),
-          ],
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColors.cobalt, AppColors.navy],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const WifiLoader(size: 150),
+                const SizedBox(height: 28),
+                const Text(
+                  'WiFi Zone Manager',
+                  style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: -0.5),
+                ),
+                const SizedBox(height: 8),
+                AnimatedBuilder(
+                  animation: _dots,
+                  builder: (_, _) {
+                    final n = (_dots.value * 3).floor() + 1;
+                    return Text.rich(
+                      TextSpan(
+                        text: 'সংযোগ হচ্ছে',
+                        children: [
+                          for (int i = 0; i < 3; i++)
+                            TextSpan(
+                              text: '.',
+                              style: TextStyle(
+                                  color: i < n
+                                      ? Colors.white.o(0.8)
+                                      : Colors.transparent),
+                            ),
+                        ],
+                      ),
+                      style: TextStyle(
+                          fontSize: 15,
+                          color: Colors.white.o(0.8),
+                          fontWeight: FontWeight.w500),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1379,58 +1555,41 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     AppPrefs.startListener(); // লগইনের পরেই ক্লাউড লিসেনার চালু
+    saleDealerRequest.addListener(_onSaleRequest);
   }
 
   @override
   void dispose() {
+    saleDealerRequest.removeListener(_onSaleRequest);
     unawaited(AppPrefs.stopListener());
     super.dispose();
+  }
+
+  /// ডিলার স্ক্রিন থেকে "বিক্রয়" চাপলে নতুন বিক্রয় ট্যাবে চলে যায়
+  void _onSaleRequest() {
+    if (saleDealerRequest.value != null && mounted) {
+      setState(() => _index = 2); // নতুন বিক্রয় ট্যাব (মাঝখানে)
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     // IndexedStack: ট্যাব বদলালে ফর্মের ডেটা হারাবে না (যেমন অর্ধেক লেখা বিক্রয়)
+    // ক্রম: 0 ড্যাশবোর্ড, 1 ডিলার, 2 নতুন বিক্রয় (মাঝখানে), 3 ইতিহাস, 4 জোন
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: [
           DashboardScreen(active: _index == 0),
-          SalesEntryScreen(active: _index == 1),
-          HistoryScreen(active: _index == 2),
-          WifiZoneScreen(active: _index == 3),
+          DealerScreen(active: _index == 1),
+          SalesEntryScreen(active: _index == 2),
+          HistoryScreen(active: _index == 3),
+          WifiZoneScreen(active: _index == 4),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        height: 66,
-        elevation: 10,
-        shadowColor: AppColors.cobalt.o(0.15),
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon:
-                Icon(Icons.grid_view_rounded, color: AppColors.cobalt),
-            label: 'ড্যাশবোর্ড',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.add_circle_outline),
-            selectedIcon:
-                Icon(Icons.add_circle_rounded, color: AppColors.cobalt),
-            label: 'নতুন বিক্রয়',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon:
-                Icon(Icons.receipt_long_rounded, color: AppColors.cobalt),
-            label: 'ইতিহাস',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.router_outlined),
-            selectedIcon: Icon(Icons.router_rounded, color: AppColors.cobalt),
-            label: 'ওয়াইফাই জোন',
-          ),
-        ],
+      bottomNavigationBar: AppBottomBar(
+        index: _index,
+        onChanged: (i) => setState(() => _index = i),
       ),
     );
   }
@@ -1821,7 +1980,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: WifiLoader(size: 96, color: AppColors.cobalt)));
     }
     final low = _prices
         .where((p) => (_stock['$p'] ?? 0) < AppConfig.lowStockLimit)
@@ -2010,6 +2169,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       if (mounted) setState(() {});
     });
     AppPrefs.dataVersion.addListener(_load);
+    saleDealerRequest.addListener(_onDealerRequest);
     _load();
   }
 
@@ -2022,6 +2182,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   @override
   void dispose() {
     AppPrefs.dataVersion.removeListener(_load);
+    saleDealerRequest.removeListener(_onDealerRequest);
     _name.dispose();
     _phone.dispose();
     for (final c in _ctrls.values) {
@@ -2030,9 +2191,19 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     super.dispose();
   }
 
+  /// ডিলার স্ক্রিন থেকে আসা অনুরোধ: নাম/ফোন আগে থেকে বসিয়ে দেয়
+  void _onDealerRequest() {
+    final d = saleDealerRequest.value;
+    if (d == null) return;
+    _name.text = d.name;
+    _phone.text = d.phone;
+    saleDealerRequest.value = null;
+  }
+
   Future<void> _load() async {
     final p = await AppPrefs.getInstance();
-    final history = p.history();
+    final dealers = await p.ensureDealers();
+    dealers.sort((a, b) => b.lastVisit.compareTo(a.lastVisit));
     if (!mounted) return;
     setState(() {
       _rate = p.getDouble(AppConfig.commissionRate) ?? 10.0;
@@ -2041,12 +2212,12 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       final seen = <String>{};
       _dealers = [];
       _dealerPhone.clear();
-      for (final s in history) {
-        final n = s.retailerName.trim();
+      for (final d in dealers) {
+        final n = d.name.trim();
         if (n.isEmpty) continue;
         if (seen.add(n)) {
           _dealers.add(n);
-          _dealerPhone[n] = s.retailerPhone;
+          _dealerPhone[n] = d.phone;
         }
       }
       // নতুন দামের জন্য কন্ট্রোলার, মুছে ফেলা দামের কন্ট্রোলার dispose
@@ -2173,6 +2344,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     setState(() => _saving = true);
     try {
       final p = await AppPrefs.getInstance();
+      // ডিলারের লোকেশন (না পেলে বিক্রয় আটকায় না)
+      final pos = await tryGetPosition();
       // সর্বশেষ স্টক আবার পড়ে যাচাই (অন্য ডিভাইসে বদলে থাকতে পারে)
       final latestStock = p.stock();
       for (final e in sold.entries) {
@@ -2202,8 +2375,12 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       );
       sold.forEach((k, q) => latestStock[k] = (latestStock[k] ?? 0) - q);
       final history = p.history()..insert(0, sale);
+      // নতুন বিক্রয় সেভ করার আগে ডিলার লিস্ট নিতে হবে (ব্যাকফিলে দুইবার গোনা এড়াতে)
+      final dealers = await p.ensureDealers();
+      upsertDealerVisit(dealers, sale, pos);
       await p.saveStock(latestStock);
       await p.saveHistory(history);
+      await p.saveDealers(dealers);
       await p.setInt(AppConfig.invoiceCounter, counter);
       if (!mounted) return;
       _clearAll();
@@ -2324,7 +2501,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: WifiLoader(size: 96, color: AppColors.cobalt)));
     }
     final total = _total;
     final discount = total * (_rate / 100);
@@ -2653,7 +2830,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: WifiLoader(size: 96, color: AppColors.cobalt))
                 : RefreshIndicator(
                     onRefresh: _refresh,
                     child: list.isEmpty
@@ -2867,7 +3044,8 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
             onPressed: () => Navigator.pop(context),
             child: const Text('বন্ধ করুন')),
         ElevatedButton.icon(
-          onPressed: () => Share.share(_shareText),
+          onPressed: () =>
+              SharePlus.instance.share(ShareParams(text: _shareText)),
           icon: const Icon(Icons.share, size: 16),
           label: const Text('শেয়ার'),
         ),
@@ -3071,6 +3249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'cardStock': p.getString(AppConfig.cardStock),
         'salesHistory': p.getString(AppConfig.salesHistory),
         'wifiZones': p.getString(AppConfig.wifiZones),
+        'dealers': p.getString(AppConfig.dealers),
         'companyLogoBase64': p.getString(AppConfig.companyLogo),
       };
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
@@ -3079,8 +3258,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         name: 'wifi_zone_backup_$timestamp.json',
         mimeType: 'application/json',
       );
-      await Share.shareXFiles([file],
-          text: 'WiFi Zone Manager Backup - $timestamp');
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        text: 'WiFi Zone Manager Backup - $timestamp',
+      ));
       if (mounted) showMsg(context, 'ব্যাকআপ ফাইল তৈরি হয়েছে');
     } catch (e) {
       if (mounted) showMsg(context, 'ব্যাকআপ নিতে সমস্যা: $e', error: true);
@@ -3103,7 +3284,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         throw 'ব্যাকআপ সংস্করণ অসামঞ্জস্যপূর্ণ।';
       }
       // কিছু লেখার আগেই JSON ফিল্ডগুলো যাচাই
-      for (final f in ['cardStock', 'salesHistory', 'wifiZones']) {
+      for (final f in ['cardStock', 'salesHistory', 'wifiZones', 'dealers']) {
         final v = data[f];
         if (v is String) jsonDecode(v);
       }
@@ -3133,6 +3314,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await str(AppConfig.cardStock, 'cardStock');
       await str(AppConfig.salesHistory, 'salesHistory');
       await str(AppConfig.wifiZones, 'wifiZones');
+      if (data.containsKey('dealers')) {
+        await str(AppConfig.dealers, 'dealers');
+      } else {
+        // পুরনো ব্যাকআপ: রিস্টোর করা ইতিহাস থেকে ডিলার নতুন করে তৈরি হবে
+        await p.remove(AppConfig.dealers);
+      }
       await str(AppConfig.companyLogo, 'companyLogoBase64');
       if (data['commissionRate'] is num) {
         await p.setDouble(
@@ -3237,7 +3424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           no: 'থাকুন',
           danger: true,
         );
-        if (leave && mounted) {
+        if (leave && context.mounted) {
           setState(() => _dirty = false);
           Navigator.pop(context);
         }
@@ -3502,7 +3689,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Positioned.fill(
                 child: Container(
                   color: Colors.black.o(0.15),
-                  child: const Center(child: CircularProgressIndicator()),
+                  child: const Center(child: WifiLoader(size: 96, color: AppColors.cobalt)),
                 ),
               ),
           ],
@@ -3607,10 +3794,12 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
             accuracy: LocationAccuracy.high, distanceFilter: 25),
       ).listen(
         (pos) {
-          if (mounted) setState(() {
-            _position = pos;
-            _locationNote = null;
-          });
+          if (mounted) {
+            setState(() {
+              _position = pos;
+              _locationNote = null;
+            });
+          }
         },
         onError: (Object e) {
           debugPrint('Location stream error: $e');
@@ -3696,8 +3885,8 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
     final link = pts == null
         ? 'N/A'
         : 'https://www.google.com/maps/search/?api=1&query=${pts[0]},${pts[1]}';
-    Share.share(
-      '🚀 WiFi Zone Details 🚀\n'
+    SharePlus.instance.share(ShareParams(
+      text: '🚀 WiFi Zone Details 🚀\n'
       '------------------------------------\n'
       'Title: ${zone.title}\n'
       'Zone ID: ${zone.zoneId}\n'
@@ -3708,7 +3897,7 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
       'GPS: ${zone.gps}\n'
       'Map Link: $link\n',
       subject: 'WiFi Zone: ${zone.title}',
-    );
+    ));
   }
 
   Future<void> _openMap(WifiZone zone) async {
@@ -3819,7 +4008,7 @@ class _WifiZoneScreenState extends State<WifiZoneScreen> {
             ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: WifiLoader(size: 96, color: AppColors.cobalt))
                 : RefreshIndicator(
                     onRefresh: _refresh,
                     child: list.isEmpty
@@ -4073,8 +4262,10 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
         return;
       }
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 20),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 20),
+        ),
       );
       _gpsController.text =
           '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
@@ -4273,6 +4464,1237 @@ class _ZoneEntryScreenState extends State<ZoneEntryScreen> {
                       : const Icon(Icons.save_rounded),
                   label: Text(editing ? 'আপডেট করুন' : 'সংরক্ষণ করুন'),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dealers  (নতুন বিক্রয় থেকে অটো তৈরি হয়)
+// ---------------------------------------------------------------------------
+class Dealer {
+  final String id;
+  String name;
+  String phone;
+  int visitCount;
+  String lastVisit; // ISO-8601
+  String gps; // ডিলারের লোকেশন (প্রথম ভিজিটে অটো সেট, পরে হাতে বদলানো যায়)
+  String lastVisitGps; // সর্বশেষ বিক্রয়ের সময়ের লোকেশন
+  double totalPurchase; // মোট নেট ক্রয়
+  String lastInvoice;
+
+  Dealer({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.visitCount,
+    required this.lastVisit,
+    required this.gps,
+    required this.lastVisitGps,
+    required this.totalPurchase,
+    required this.lastInvoice,
+  });
+
+  DateTime? get lastVisitDate =>
+      lastVisit.isEmpty ? null : DateTime.tryParse(lastVisit);
+  double get average => visitCount == 0 ? 0 : totalPurchase / visitCount;
+  String get bestGps => parseGps(gps) != null
+      ? gps
+      : (parseGps(lastVisitGps) != null ? lastVisitGps : '');
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'phone': phone,
+        'visitCount': visitCount,
+        'lastVisit': lastVisit,
+        'gps': gps,
+        'lastVisitGps': lastVisitGps,
+        'totalPurchase': totalPurchase,
+        'lastInvoice': lastInvoice,
+      };
+
+  factory Dealer.fromJson(Map<String, dynamic> j) {
+    final name = (j['name'] ?? '').toString();
+    return Dealer(
+      id: (j['id'] ?? dealerKey(name)).toString(),
+      name: name,
+      phone: (j['phone'] ?? '').toString(),
+      visitCount: (j['visitCount'] as num?)?.toInt() ?? 0,
+      lastVisit: (j['lastVisit'] ?? '').toString(),
+      gps: (j['gps'] ?? '').toString(),
+      lastVisitGps: (j['lastVisitGps'] ?? '').toString(),
+      totalPurchase: (j['totalPurchase'] as num?)?.toDouble() ?? 0.0,
+      lastInvoice: (j['lastInvoice'] ?? '').toString(),
+    );
+  }
+}
+
+/// একই ডিলারকে চেনার key (বড়/ছোট হাতের ও বাড়তি স্পেস উপেক্ষা করে)
+String dealerKey(String name) =>
+    name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+/// এই ফোন থেকে অন্য ট্যাব (নতুন বিক্রয়) খুলতে ডিলার পাঠানোর চ্যানেল
+final ValueNotifier<Dealer?> saleDealerRequest = ValueNotifier<Dealer?>(null);
+
+/// আগের ইতিহাস থেকে ডিলার লিস্ট বানায় (প্রথমবার ফিচার চালুর সময়)
+List<Dealer> buildDealersFromHistory(List<SaleRecord> history) {
+  final map = <String, Dealer>{};
+  final latest = <String, DateTime>{};
+  for (final s in history) {
+    final name = s.retailerName.trim();
+    if (name.isEmpty) continue;
+    final key = dealerKey(name);
+    final dt = parseSaleDate(s.date);
+    var d = map[key];
+    if (d == null) {
+      d = Dealer(
+        id: key,
+        name: name,
+        phone: s.retailerPhone,
+        visitCount: 0,
+        lastVisit: dt?.toIso8601String() ?? '',
+        gps: '',
+        lastVisitGps: '',
+        totalPurchase: 0,
+        lastInvoice: s.invoiceNumber,
+      );
+      map[key] = d;
+      if (dt != null) latest[key] = dt;
+    }
+    d.visitCount++;
+    d.totalPurchase += s.cashAmount;
+    if (d.phone.isEmpty && s.retailerPhone.isNotEmpty) d.phone = s.retailerPhone;
+    final prev = latest[key];
+    if (dt != null && (prev == null || dt.isAfter(prev))) {
+      latest[key] = dt;
+      d.lastVisit = dt.toIso8601String();
+      d.lastInvoice = s.invoiceNumber;
+    }
+  }
+  return map.values.toList();
+}
+
+/// নতুন বিক্রয়ের পর ডিলার তৈরি/আপডেট
+void upsertDealerVisit(List<Dealer> dealers, SaleRecord sale, Position? pos) {
+  final key = dealerKey(sale.retailerName);
+  final gps = pos == null
+      ? ''
+      : '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
+  final nowIso = DateTime.now().toIso8601String();
+  final idx = dealers.indexWhere((d) => dealerKey(d.name) == key);
+  if (idx == -1) {
+    dealers.add(Dealer(
+      id: key,
+      name: sale.retailerName.trim(),
+      phone: sale.retailerPhone,
+      visitCount: 1,
+      lastVisit: nowIso,
+      gps: gps,
+      lastVisitGps: gps,
+      totalPurchase: sale.cashAmount,
+      lastInvoice: sale.invoiceNumber,
+    ));
+    return;
+  }
+  final d = dealers[idx];
+  d.name = sale.retailerName.trim();
+  if (sale.retailerPhone.isNotEmpty) d.phone = sale.retailerPhone;
+  d.visitCount++;
+  d.lastVisit = nowIso;
+  d.totalPurchase += sale.cashAmount;
+  d.lastInvoice = sale.invoiceNumber;
+  if (gps.isNotEmpty) {
+    d.lastVisitGps = gps;
+    if (parseGps(d.gps) == null) d.gps = gps; // ডিলারের লোকেশন একবারই অটো সেট হয়
+  }
+}
+
+/// দ্রুত লোকেশন নেয়; পারমিশন/সিগন্যাল না পেলে null (বিক্রয় আটকায় না)
+Future<Position?> tryGetPosition() async {
+  try {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.denied ||
+        perm == LocationPermission.deniedForever) {
+      return null;
+    }
+    return await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 6),
+      ),
+    );
+  } catch (_) {
+    try {
+      return await Geolocator.getLastKnownPosition();
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+int? _daysSince(DateTime? dt) {
+  if (dt == null) return null;
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day)
+      .difference(DateTime(dt.year, dt.month, dt.day))
+      .inDays;
+}
+
+String relativeDays(DateTime? dt) {
+  final d = _daysSince(dt);
+  if (d == null) return 'তথ্য নেই';
+  if (d <= 0) return 'আজ';
+  if (d == 1) return 'গতকাল';
+  if (d < 30) return '$d দিন আগে';
+  if (d < 365) return '${d ~/ 30} মাস আগে';
+  return '${d ~/ 365} বছর আগে';
+}
+
+String formatVisit(DateTime dt) =>
+    '${dt.day} ${_bnMonths[dt.month - 1]} ${dt.year}, ${DateFormat('hh:mm a', 'en_US').format(dt)}';
+
+const List<List<Color>> _avatarPalettes = [
+  [AppColors.cobalt, AppColors.sky],
+  [Color(0xFF7C3AED), Color(0xFFA78BFA)],
+  [Color(0xFF0F766E), Color(0xFF14B8A6)],
+  [Color(0xFFEA580C), Color(0xFFFB923C)],
+  [Color(0xFFBE185D), Color(0xFFF472B6)],
+];
+
+Widget dealerAvatar(String name, double size) {
+  final trimmed = name.trim();
+  final initial = trimmed.isEmpty ? '?' : String.fromCharCode(trimmed.runes.first);
+  final idx = trimmed.runes.fold<int>(0, (a, b) => a + b) % _avatarPalettes.length;
+  return Container(
+    width: size,
+    height: size,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      gradient: LinearGradient(
+        colors: _avatarPalettes[idx],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      boxShadow: [
+        BoxShadow(
+            color: _avatarPalettes[idx].first.o(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3)),
+      ],
+    ),
+    child: Text(initial.toUpperCase(),
+        style: TextStyle(
+            color: Colors.white,
+            fontSize: size * 0.42,
+            fontWeight: FontWeight.w800)),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bottom bar : মাঝখানে "নতুন বিক্রয়" বাটন
+// ---------------------------------------------------------------------------
+class _NavSpec {
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  const _NavSpec(this.icon, this.selectedIcon, this.label);
+}
+
+class AppBottomBar extends StatelessWidget {
+  final int index;
+  final ValueChanged<int> onChanged;
+  const AppBottomBar({super.key, required this.index, required this.onChanged});
+
+  static const int centerIndex = 2;
+  static const List<_NavSpec> _items = [
+    _NavSpec(Icons.grid_view_outlined, Icons.grid_view_rounded, 'ড্যাশবোর্ড'),
+    _NavSpec(Icons.storefront_outlined, Icons.storefront_rounded, 'ডিলার'),
+    _NavSpec(Icons.add_circle_outline, Icons.add_circle_rounded, 'নতুন বিক্রয়'),
+    _NavSpec(Icons.receipt_long_outlined, Icons.receipt_long_rounded, 'ইতিহাস'),
+    _NavSpec(Icons.router_outlined, Icons.router_rounded, 'ওয়াইফাই জোন'),
+  ];
+
+  Widget _label(String text, bool selected) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(text,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+              color: selected ? AppColors.cobalt : AppColors.muted,
+            )),
+      );
+
+  Widget _item(int i) {
+    final s = _items[i];
+    final sel = index == i;
+    return InkWell(
+      onTap: () => onChanged(i),
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: sel ? AppColors.paleSky : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(sel ? s.selectedIcon : s.icon,
+                size: 24, color: sel ? AppColors.cobalt : AppColors.muted),
+          ),
+          const SizedBox(height: 2),
+          _label(s.label, sel),
+        ],
+      ),
+    );
+  }
+
+  Widget _center() {
+    final s = _items[centerIndex];
+    final sel = index == centerIndex;
+    return InkWell(
+      onTap: () => onChanged(centerIndex),
+      borderRadius: BorderRadius.circular(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: sel ? 56 : 52,
+            height: sel ? 56 : 52,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [AppColors.cobalt, AppColors.sky],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(
+                  color: sel ? AppColors.paleSky : Colors.white, width: 3),
+              boxShadow: [
+                BoxShadow(
+                    color: AppColors.cobalt.o(sel ? 0.5 : 0.3),
+                    blurRadius: sel ? 16 : 10,
+                    offset: const Offset(0, 5)),
+              ],
+            ),
+            child: Icon(s.selectedIcon, color: Colors.white, size: 30),
+          ),
+          const SizedBox(height: 2),
+          _label(s.label, sel),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).padding.bottom;
+    return Container(
+      height: 78 + bottom,
+      padding: EdgeInsets.only(bottom: bottom, top: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        boxShadow: [
+          BoxShadow(
+              color: AppColors.cobalt.o(0.14),
+              blurRadius: 22,
+              offset: const Offset(0, -6)),
+        ],
+      ),
+      child: Row(
+        children: List.generate(
+          _items.length,
+          (i) => Expanded(child: i == centerIndex ? _center() : _item(i)),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dealer screen
+// ---------------------------------------------------------------------------
+enum DealerSort { recent, visits, purchase, name, nearest }
+
+enum DealerFilter { all, today, stale, noGps }
+
+class DealerScreen extends StatefulWidget {
+  final bool active;
+  const DealerScreen({super.key, this.active = true});
+  @override
+  State<DealerScreen> createState() => _DealerScreenState();
+}
+
+class _DealerScreenState extends State<DealerScreen> {
+  List<Dealer> _dealers = [];
+  List<SaleRecord> _history = [];
+  bool _loading = true;
+  final TextEditingController _search = TextEditingController();
+  DealerSort _sort = DealerSort.recent;
+  DealerFilter _filter = DealerFilter.all;
+  Position? _position;
+  bool _locationTried = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _search.addListener(() {
+      if (mounted) setState(() {});
+    });
+    AppPrefs.dataVersion.addListener(_load);
+    _load();
+    if (widget.active) _fetchPosition();
+  }
+
+  @override
+  void didUpdateWidget(DealerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _load();
+      if (!_locationTried) _fetchPosition();
+    }
+  }
+
+  @override
+  void dispose() {
+    AppPrefs.dataVersion.removeListener(_load);
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchPosition() async {
+    _locationTried = true;
+    final pos = await tryGetPosition();
+    if (mounted && pos != null) setState(() => _position = pos);
+  }
+
+  Future<void> _load() async {
+    final p = await AppPrefs.getInstance();
+    final ds = await p.ensureDealers();
+    final h = p.history();
+    if (!mounted) return;
+    setState(() {
+      _dealers = ds;
+      _history = h;
+      _loading = false;
+    });
+  }
+
+  Future<void> _refresh() async {
+    await AppPrefs.pullNow();
+    await _load();
+    await _fetchPosition();
+  }
+
+  double? _distanceOf(Dealer d) {
+    final pos = _position;
+    if (pos == null) return null;
+    final pts = parseGps(d.bestGps);
+    if (pts == null) return null;
+    return Geolocator.distanceBetween(pos.latitude, pos.longitude, pts[0], pts[1]);
+  }
+
+  List<Dealer> get _visible {
+    final q = _search.text.trim().toLowerCase();
+    final now = DateTime.now();
+    final list = _dealers.where((d) {
+      if (q.isNotEmpty &&
+          !d.name.toLowerCase().contains(q) &&
+          !d.phone.contains(q)) {
+        return false;
+      }
+      switch (_filter) {
+        case DealerFilter.all:
+          return true;
+        case DealerFilter.today:
+          final dt = d.lastVisitDate;
+          return dt != null && _sameDay(dt, now);
+        case DealerFilter.stale:
+          final days = _daysSince(d.lastVisitDate);
+          return days != null && days >= 30;
+        case DealerFilter.noGps:
+          return d.bestGps.isEmpty;
+      }
+    }).toList();
+
+    switch (_sort) {
+      case DealerSort.recent:
+        list.sort((a, b) => b.lastVisit.compareTo(a.lastVisit));
+        break;
+      case DealerSort.visits:
+        list.sort((a, b) => b.visitCount.compareTo(a.visitCount));
+        break;
+      case DealerSort.purchase:
+        list.sort((a, b) => b.totalPurchase.compareTo(a.totalPurchase));
+        break;
+      case DealerSort.name:
+        list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        break;
+      case DealerSort.nearest:
+        list.sort((a, b) {
+          final da = _distanceOf(a);
+          final db = _distanceOf(b);
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return da.compareTo(db);
+        });
+        break;
+    }
+    return list;
+  }
+
+  Color _tone(int? days) {
+    if (days == null) return AppColors.muted;
+    if (days <= 7) return AppColors.success;
+    if (days <= 30) return AppColors.cobalt;
+    return AppColors.warn;
+  }
+
+  String _sortLabel(DealerSort s) {
+    switch (s) {
+      case DealerSort.recent:
+        return 'সর্বশেষ ভিজিট';
+      case DealerSort.visits:
+        return 'বেশি ভিজিট';
+      case DealerSort.purchase:
+        return 'বেশি ক্রয়';
+      case DealerSort.name:
+        return 'নাম (ক-হ)';
+      case DealerSort.nearest:
+        return 'কাছের আগে';
+    }
+  }
+
+  // ---- actions -------------------------------------------------------------
+  Future<void> _mutate(Dealer d, void Function(Dealer) fn) async {
+    final p = await AppPrefs.getInstance();
+    final list = await p.ensureDealers();
+    final i = list.indexWhere((x) => x.id == d.id);
+    if (i == -1) return;
+    fn(list[i]);
+    await p.saveDealers(list);
+    if (mounted) await _load();
+  }
+
+  Future<void> _call(Dealer d) async {
+    if (d.phone.trim().isEmpty) {
+      showMsg(context, 'এই ডিলারের ফোন নাম্বার নেই', error: true);
+      return;
+    }
+    try {
+      await launchUrl(Uri(scheme: 'tel', path: d.phone.trim()));
+    } catch (_) {
+      if (mounted) showMsg(context, 'কল করা যাচ্ছে না', error: true);
+    }
+  }
+
+  Future<void> _openMap(String gps) async {
+    final pts = parseGps(gps);
+    if (pts == null) {
+      showMsg(context, 'এই ডিলারের GPS লোকেশন সেভ নেই', error: true);
+      return;
+    }
+    final uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=${pts[0]},${pts[1]}');
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) showMsg(context, 'ম্যাপ খোলা যাচ্ছে না। লোকেশন: $gps', error: true);
+    } catch (_) {
+      if (mounted) showMsg(context, 'ম্যাপ খোলা যাচ্ছে না। লোকেশন: $gps', error: true);
+    }
+  }
+
+  Future<void> _setGpsHere(Dealer d) async {
+    showMsg(context, 'লোকেশন নেওয়া হচ্ছে...');
+    final pos = await tryGetPosition();
+    if (!mounted) return;
+    if (pos == null) {
+      showMsg(context, 'লোকেশন পাওয়া যায়নি। GPS ও পারমিশন চালু আছে কিনা দেখুন।',
+          error: true);
+      return;
+    }
+    final g =
+        '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
+    await _mutate(d, (x) {
+      x.gps = g;
+      x.lastVisitGps = g;
+    });
+    if (mounted) showMsg(context, 'ডিলারের লোকেশন আপডেট হয়েছে');
+  }
+
+  Future<void> _edit(Dealer d) async {
+    final nameCtrl = TextEditingController(text: d.name);
+    final phoneCtrl = TextEditingController(text: d.phone);
+    String? err;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('ডিলার এডিট',
+              style: TextStyle(color: AppColors.cobalt)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                    labelText: 'ডিলার নাম',
+                    prefixIcon: const Icon(Icons.store),
+                    errorText: err),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                    labelText: 'ফোন', prefixIcon: Icon(Icons.phone)),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('বাতিল')),
+            ElevatedButton(
+              onPressed: () {
+                final n = nameCtrl.text.trim();
+                if (n.isEmpty) {
+                  setSt(() => err = 'নাম আবশ্যক');
+                  return;
+                }
+                final dup = _dealers.any(
+                    (x) => x.id != d.id && dealerKey(x.name) == dealerKey(n));
+                if (dup) {
+                  setSt(() => err = 'এই নামে আরেকজন ডিলার আছে');
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('সংরক্ষণ'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await _mutate(d, (x) {
+      x.name = nameCtrl.text.trim();
+      x.phone = phoneCtrl.text.trim();
+    });
+    if (mounted) showMsg(context, 'ডিলারের তথ্য আপডেট হয়েছে');
+  }
+
+  Future<void> _delete(Dealer d) async {
+    final ok = await confirmDialog(
+      context,
+      title: 'ডিলার মুছবেন?',
+      message: '"${d.name}" ডিলার তালিকা থেকে মুছে যাবে। বিক্রয়ের ইতিহাস অক্ষত থাকবে, '
+          'তবে ভিজিট কাউন্ট নতুন করে শুরু হবে।',
+      yes: 'মুছুন',
+      danger: true,
+    );
+    if (!ok) return;
+    final p = await AppPrefs.getInstance();
+    final list = await p.ensureDealers();
+    list.removeWhere((x) => x.id == d.id);
+    await p.saveDealers(list);
+    if (mounted) {
+      await _load();
+      if (mounted) showMsg(context, 'ডিলার মুছে ফেলা হয়েছে');
+    }
+  }
+
+  void _newSale(Dealer d) => saleDealerRequest.value = d;
+
+  Future<void> _openDetail(Dealer d) async {
+    final key = dealerKey(d.name);
+    final sales = _history.where((s) => dealerKey(s.retailerName) == key).toList();
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DealerSheet(
+        dealer: d,
+        sales: sales,
+        distance: _distanceOf(d),
+      ),
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'call':
+        await _call(d);
+        break;
+      case 'map':
+        await _openMap(d.bestGps);
+        break;
+      case 'lastmap':
+        await _openMap(d.lastVisitGps);
+        break;
+      case 'sale':
+        _newSale(d);
+        break;
+      case 'edit':
+        await _edit(d);
+        break;
+      case 'setgps':
+        await _setGpsHere(d);
+        break;
+      case 'delete':
+        await _delete(d);
+        break;
+    }
+  }
+
+  // ---- UI ------------------------------------------------------------------
+  Widget _summary(List<Dealer> all) {
+    final now = DateTime.now();
+    final visits = all.fold<int>(0, (a, d) => a + d.visitCount);
+    final today = all.where((d) {
+      final dt = d.lastVisitDate;
+      return dt != null && _sameDay(dt, now);
+    }).length;
+    Widget cell(IconData icon, String value, String label) => Expanded(
+          child: Column(
+            children: [
+              Icon(icon, color: Colors.white.o(0.85), size: 20),
+              const SizedBox(height: 6),
+              Text(value,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 2),
+              Text(label,
+                  style: TextStyle(color: Colors.white.o(0.75), fontSize: 11)),
+            ],
+          ),
+        );
+    Widget divider() =>
+        Container(width: 1, height: 44, color: Colors.white.o(0.2));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.cobalt, AppColors.navy],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+              color: AppColors.cobalt.o(0.28),
+              blurRadius: 14,
+              offset: const Offset(0, 7)),
+        ],
+      ),
+      child: Row(
+        children: [
+          cell(Icons.storefront_rounded, '${all.length}', 'মোট ডিলার'),
+          divider(),
+          cell(Icons.repeat_rounded, '$visits', 'মোট ভিজিট'),
+          divider(),
+          cell(Icons.today_rounded, '$today', 'আজ ভিজিট'),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.o(0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(text,
+              style: TextStyle(
+                  fontSize: 11.5, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _card(Dealer d) {
+    final dt = d.lastVisitDate;
+    final days = _daysSince(dt);
+    final tone = _tone(days);
+    final dist = _distanceOf(d);
+    final hasGps = d.bestGps.isNotEmpty;
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      onTap: () => _openDetail(d),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              dealerAvatar(d.name, 50),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(d.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 2),
+                    Text(d.phone.isEmpty ? 'ফোন নেই' : d.phone,
+                        style: const TextStyle(
+                            fontSize: 12.5, color: AppColors.muted)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.bg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.sky.o(0.3)),
+                ),
+                child: Column(
+                  children: [
+                    Text('${d.visitCount}',
+                        style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.cobalt)),
+                    const Text('ভিজিট',
+                        style: TextStyle(fontSize: 10, color: AppColors.muted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _pill(Icons.schedule_rounded, relativeDays(dt), tone),
+              _pill(Icons.payments_outlined, taka(d.totalPurchase),
+                  AppColors.cobalt),
+              if (dist != null)
+                _pill(Icons.near_me_rounded, formatDistance(dist), AppColors.sky),
+              _pill(hasGps ? Icons.location_on_rounded : Icons.location_off_rounded,
+                  hasGps ? 'লোকেশন সেভ' : 'GPS নেই',
+                  hasGps ? AppColors.success : Colors.grey),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: d.phone.isEmpty ? null : () => _call(d),
+                  icon: const Icon(Icons.call_rounded, size: 16),
+                  label: const Text('কল'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: hasGps ? () => _openMap(d.bestGps) : null,
+                  icon: const Icon(Icons.map_outlined, size: 16),
+                  label: const Text('ম্যাপ'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _newSale(d),
+                  style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 12)),
+                  icon: const Icon(Icons.add_shopping_cart_rounded, size: 16),
+                  label: const Text('বিক্রয়'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _visible;
+    const filterLabels = {
+      DealerFilter.all: 'সব',
+      DealerFilter.today: 'আজ এসেছে',
+      DealerFilter.stale: '৩০+ দিন আসেনি',
+      DealerFilter.noGps: 'GPS নেই',
+    };
+
+    return Scaffold(
+      body: Column(
+        children: [
+          ModernHeader(
+            title: 'ডিলার',
+            subtitle: '${_dealers.length} জন ডিলার • নতুন বিক্রয় থেকে অটো তৈরি',
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: WifiLoader(size: 96, color: AppColors.cobalt))
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                      children: [
+                        if (_dealers.isNotEmpty) _summary(_dealers),
+                        TextField(
+                          controller: _search,
+                          decoration: InputDecoration(
+                            hintText: 'নাম বা ফোন দিয়ে খুঁজুন...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _search.text.isEmpty
+                                ? null
+                                : IconButton(
+                                    icon: const Icon(Icons.close),
+                                    onPressed: _search.clear),
+                            contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 20),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(30),
+                                borderSide: BorderSide.none),
+                            enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(30),
+                                borderSide: BorderSide.none),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: DealerFilter.values
+                                .map((f) => Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: ChoiceChip(
+                                        label: Text(filterLabels[f]!),
+                                        selected: _filter == f,
+                                        onSelected: (_) =>
+                                            setState(() => _filter = f),
+                                      ),
+                                    ))
+                                .toList(),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 6, 0, 8),
+                          child: Row(
+                            children: [
+                              Text('${list.length} জন',
+                                  style: const TextStyle(
+                                      color: AppColors.muted,
+                                      fontWeight: FontWeight.w600)),
+                              const Spacer(),
+                              PopupMenuButton<DealerSort>(
+                                tooltip: 'সাজান',
+                                onSelected: (s) {
+                                  if (s == DealerSort.nearest &&
+                                      _position == null) {
+                                    showMsg(context,
+                                        'লোকেশন পাওয়া যাচ্ছে না — GPS/পারমিশন চালু করুন',
+                                        error: true);
+                                    _fetchPosition();
+                                    return;
+                                  }
+                                  setState(() => _sort = s);
+                                },
+                                itemBuilder: (_) => DealerSort.values
+                                    .map((s) => PopupMenuItem(
+                                          value: s,
+                                          child: Row(children: [
+                                            Icon(
+                                                _sort == s
+                                                    ? Icons.check_rounded
+                                                    : Icons.sort_rounded,
+                                                size: 18,
+                                                color: AppColors.cobalt),
+                                            const SizedBox(width: 8),
+                                            Text(_sortLabel(s)),
+                                          ]),
+                                        ))
+                                    .toList(),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.swap_vert_rounded,
+                                        size: 18, color: AppColors.cobalt),
+                                    const SizedBox(width: 4),
+                                    Text(_sortLabel(_sort),
+                                        style: const TextStyle(
+                                            color: AppColors.cobalt,
+                                            fontWeight: FontWeight.w700)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (list.isEmpty)
+                          SizedBox(
+                            height: 280,
+                            child: EmptyState(
+                              icon: Icons.storefront_rounded,
+                              text: _dealers.isEmpty
+                                  ? 'এখনও কোনো ডিলার নেই'
+                                  : 'কোনো ডিলার পাওয়া যায়নি',
+                              hint: _dealers.isEmpty
+                                  ? '"নতুন বিক্রয়" করলেই ডিলার অটো যোগ হবে'
+                                  : 'সার্চ বা ফিল্টার বদলে দেখুন',
+                            ),
+                          )
+                        else
+                          ...list.map(_card),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dealer detail bottom sheet
+// ---------------------------------------------------------------------------
+class _DealerSheet extends StatelessWidget {
+  final Dealer dealer;
+  final List<SaleRecord> sales;
+  final double? distance;
+  const _DealerSheet(
+      {required this.dealer, required this.sales, required this.distance});
+
+  Widget _stat(String label, String value, Color c) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: c.o(0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: c.o(0.2)),
+        ),
+        child: Column(
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(value,
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w900, color: c)),
+            ),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _info(IconData icon, String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+                color: AppColors.bg, borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, size: 18, color: AppColors.cobalt),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+                const SizedBox(height: 1),
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _action(BuildContext context, String key, IconData icon, String label,
+      {bool primary = false, bool danger = false, bool enabled = true}) {
+    final onTap = enabled ? () => Navigator.pop(context, key) : null;
+    if (primary) {
+      return ElevatedButton.icon(
+          onPressed: onTap, icon: Icon(icon, size: 18), label: Text(label));
+    }
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      style: danger
+          ? OutlinedButton.styleFrom(
+              foregroundColor: AppColors.danger,
+              side: BorderSide(color: AppColors.danger.o(0.5)))
+          : null,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = dealer;
+    final last = d.lastVisitDate;
+    final recent = sales.take(5).toList();
+    return Container(
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(3)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  dealerAvatar(d.name, 58),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(d.name,
+                            style: const TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.w900)),
+                        Text(d.phone.isEmpty ? 'ফোন নেই' : d.phone,
+                            style: const TextStyle(color: AppColors.muted)),
+                        if (distance != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text('আপনার থেকে ${formatDistance(distance!)} দূরে',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.sky,
+                                    fontWeight: FontWeight.w700)),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _stat('ভিজিট', '${d.visitCount}', AppColors.cobalt),
+                  const SizedBox(width: 10),
+                  _stat('মোট ক্রয়', taka(d.totalPurchase), AppColors.success),
+                  const SizedBox(width: 10),
+                  _stat('গড়/ভিজিট', taka(d.average), AppColors.sky),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _info(
+                Icons.schedule_rounded,
+                'সর্বশেষ ভিজিট',
+                last == null ? 'তথ্য নেই' : '${formatVisit(last)}  •  ${relativeDays(last)}',
+              ),
+              _info(Icons.receipt_long_rounded, 'সর্বশেষ ইনভয়েস',
+                  d.lastInvoice.isEmpty ? '—' : '#${d.lastInvoice}'),
+              _info(Icons.location_on_rounded, 'ডিলারের লোকেশন',
+                  d.bestGps.isEmpty ? 'সেট করা নেই' : d.bestGps),
+              _info(Icons.pin_drop_outlined, 'সর্বশেষ ভিজিটের লোকেশন',
+                  d.lastVisitGps.isEmpty ? 'সেভ হয়নি' : d.lastVisitGps),
+              if (recent.isNotEmpty) ...[
+                const Divider(height: 24),
+                const Text('সাম্প্রতিক ইনভয়েস',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800, color: AppColors.cobalt)),
+                const SizedBox(height: 6),
+                ...recent.map((s) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text('#${s.invoiceNumber} • ${s.date}',
+                                style: const TextStyle(
+                                    fontSize: 12.5, color: AppColors.muted)),
+                          ),
+                          Text(taka(s.cashAmount),
+                              style: const TextStyle(fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    )),
+              ],
+              const Divider(height: 26),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _action(context, 'sale', Icons.add_shopping_cart_rounded,
+                      'নতুন বিক্রয়',
+                      primary: true),
+                  _action(context, 'call', Icons.call_rounded, 'কল',
+                      enabled: d.phone.isNotEmpty),
+                  _action(context, 'map', Icons.map_outlined, 'ম্যাপ',
+                      enabled: d.bestGps.isNotEmpty),
+                  _action(context, 'lastmap', Icons.pin_drop_outlined,
+                      'সর্বশেষ ভিজিট ম্যাপে',
+                      enabled: d.lastVisitGps.isNotEmpty),
+                  _action(context, 'setgps', Icons.my_location_rounded,
+                      'এখানকার লোকেশন সেট'),
+                  _action(context, 'edit', Icons.edit_outlined, 'এডিট'),
+                  _action(context, 'delete', Icons.delete_outline, 'মুছুন',
+                      danger: true),
+                ],
               ),
             ],
           ),
