@@ -47,6 +47,11 @@ class AppColors {
   static const success = Color(0xFF16A34A);
   static const warn = Color(0xFFF59E0B);
   static const danger = Color(0xFFDC2626);
+
+  // dark mode chrome (কার্ডগুলো ইচ্ছাকৃতভাবে সাদাই রাখা হয়েছে, পড়তে সুবিধার জন্য)
+  static const darkBg = Color(0xFF0B1220);
+  static const darkSurface = Color(0xFF111A2E);
+  static const darkAppBarFg = Color(0xFFE2ECFF);
 }
 
 extension ColorOpacityX on Color {
@@ -66,9 +71,18 @@ class AppConfig {
   static const String cardStock = 'card_stock';
   static const String salesHistory = 'sales_history';
   static const String dealers = 'dealers';
+  static const String adminEmails = 'admin_emails';
+  static const String stockLog = 'stock_log';
+  static const String companyCommission = 'company_commission';
+  static const String dealerCommission = 'dealer_commission';
+  static const String officePartnerCommission = 'office_partner_commission';
+  static const String cardCost = 'card_cost';
+  static const String themeMode = 'theme_mode';
+  static const String settingsPin = 'settings_pin';
 
   static const int lowStockLimit = 10;
   static const List<int> defaultPrices = [9, 15, 25, 50, 89, 249];
+  static const int maxStockLogEntries = 300;
 
   static const List<String> allKeys = [
     companyName,
@@ -81,8 +95,19 @@ class AppConfig {
     cardStock,
     salesHistory,
     dealers,
+    stockLog,
+    adminEmails,
+    companyCommission,
+    dealerCommission,
+    officePartnerCommission,
+    cardCost,
+    settingsPin,
+    // themeMode জেনেবুঝে বাদ: এটা এই ডিভাইসের পছন্দ, ক্লাউডে পাঠানোর দরকার নেই
   ];
 }
+
+/// অ্যাপের থিম (লোকাল, ডিভাইস-ভিত্তিক — ক্লাউডে সিঙ্ক হয় না)
+final ValueNotifier<ThemeMode> appThemeMode = ValueNotifier(ThemeMode.light);
 
 String? _firebaseInitializationError;
 
@@ -288,7 +313,12 @@ class AppPrefs {
   static final ValueNotifier<String?> syncError = ValueNotifier<String?>(null);
   static final ValueNotifier<bool> syncPending = ValueNotifier<bool>(false);
 
-  static const Set<String> _doubleKeys = {AppConfig.commissionRate};
+  static const Set<String> _doubleKeys = {
+    AppConfig.commissionRate,
+    AppConfig.companyCommission,
+    AppConfig.dealerCommission,
+    AppConfig.officePartnerCommission,
+  };
   static const Set<String> _intKeys = {AppConfig.invoiceCounter};
 
   static bool get cloudReady => Firebase.apps.isNotEmpty;
@@ -505,6 +535,21 @@ class AppPrefs {
   Future<void> saveStock(Map<String, int> stock) =>
       setString(AppConfig.cardStock, jsonEncode(stock));
 
+  Map<String, double> costPrices() {
+    final s = getString(AppConfig.cardCost);
+    if (s == null) return {};
+    try {
+      final m = jsonDecode(s) as Map;
+      return m.map<String, double>(
+          (k, v) => MapEntry(k.toString(), (v as num).toDouble()));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveCostPrices(Map<String, double> costs) =>
+      setString(AppConfig.cardCost, jsonEncode(costs));
+
   List<SaleRecord> history() {
     final s = getString(AppConfig.salesHistory);
     if (s == null) return [];
@@ -562,6 +607,242 @@ class AppPrefs {
     if (built.isNotEmpty) await saveDealers(built);
     return built;
   }
+
+  // ---- কমিশন শতাংশ (প্রতি কার্ড সেলে ফ্ল্যাট ভাগ: ডিলার + কোম্পানি + অফিস পার্টনার = ১০০%) -----------
+  double companyCommissionPercent() {
+    return getDouble(AppConfig.companyCommission) ?? 50.0;
+  }
+
+  double dealerCommissionPercent() {
+    return getDouble(AppConfig.dealerCommission) ?? 10.0;
+  }
+
+  double officePartnerPercent() {
+    return getDouble(AppConfig.officePartnerCommission) ?? 40.0;
+  }
+
+  Future<void> saveCommissionPercents(
+      double company, double dealer, double officePartner) async {
+    await setDouble(AppConfig.companyCommission, company);
+    await setDouble(AppConfig.dealerCommission, dealer);
+    await setDouble(AppConfig.officePartnerCommission, officePartner);
+    // বিক্রয় স্ক্রিনের ডিলার ডিসকাউন্ট = ডিলার %
+    await setDouble(AppConfig.commissionRate, dealer);
+  }
+
+  // ---- সেটিংস পিন (স্টাফদের সেটিংস থেকে দূরে রাখতে) --------------------------
+  List<Map<String, dynamic>> stockLog() {
+    final s = getString(AppConfig.stockLog);
+    if (s == null) return [];
+    try {
+      final l = jsonDecode(s) as List;
+      return l.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> appendStockLog(
+      String price, int delta, String type, int resultingQty) async {
+    final log = stockLog();
+    log.insert(0, {
+      'price': price,
+      'delta': delta,
+      'type': type, // add | set | sale
+      'qty': resultingQty,
+      'at': DateTime.now().toIso8601String(),
+    });
+    if (log.length > AppConfig.maxStockLogEntries) {
+      log.removeRange(AppConfig.maxStockLogEntries, log.length);
+    }
+    await setString(AppConfig.stockLog, jsonEncode(log));
+  }
+
+  // ---- নিরাপত্তা (সেটিংস পিন) --------------------------
+  String? settingsPin() {
+    final p = getString(AppConfig.settingsPin);
+    return (p == null || p.isEmpty) ? null : p;
+  }
+
+  Future<void> saveSettingsPin(String? pin) async {
+    if (pin == null || pin.isEmpty) {
+      await remove(AppConfig.settingsPin);
+    } else {
+      await setString(AppConfig.settingsPin, pin);
+    }
+  }
+
+  // ---- Admin emails (dashboard এ দেখার জন্য) -----------
+  List<String> adminEmails() {
+    final s = getString(AppConfig.adminEmails);
+    if (s == null || s.isEmpty) return [];
+    try {
+      final l = jsonDecode(s) as List;
+      return l.map((e) => e.toString().trim().toLowerCase()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveAdminEmails(List<String> emails) async {
+    final normalized = emails.map((e) => e.trim().toLowerCase()).toList();
+    await setString(AppConfig.adminEmails, jsonEncode(normalized));
+  }
+
+  bool isAdmin(String? email) {
+    if (email == null || email.isEmpty) return false;
+    return adminEmails().contains(email.trim().toLowerCase());
+  }
+
+  // ---- থিম (লোকাল, ক্লাউডে যায় না) ------------------------------------------
+  Future<void> saveThemeModeLocal(ThemeMode mode) async {
+    await _local.setString(
+        AppConfig.themeMode, mode == ThemeMode.dark ? 'dark' : 'light');
+  }
+
+  ThemeMode loadThemeModeLocal() {
+    final v = _local.getString(AppConfig.themeMode);
+    return v == 'dark' ? ThemeMode.dark : ThemeMode.light;
+  }
+}
+
+/// এই সেলে বিক্রি হওয়া কার্ডের মোট খরচ (cost) বের করে
+/// CSV-এর একটা সেল নিরাপদ করে (কমা/উদ্ধৃতি/নতুন লাইন থাকলে quote করে)
+String csvCell(Object? v) {
+  final s = (v ?? '').toString();
+  if (s.contains(',') || s.contains('"') || s.contains('\n')) {
+    return '"${s.replaceAll('"', '""')}"';
+  }
+  return s;
+}
+
+String buildSalesCsv(List<SaleRecord> history) {
+  final rows = <String>[];
+  rows.add([
+    'Invoice',
+    'Date',
+    'Dealer',
+    'Phone',
+    'Items',
+    'Pieces',
+    'GrandTotal',
+    'Commission',
+    'NetCash',
+  ].map(csvCell).join(','));
+  for (final s in history) {
+    final itemsText =
+        s.items.entries.map((e) => '${e.key}x${e.value}').join(' | ');
+    rows.add([
+      s.invoiceNumber,
+      s.date,
+      s.retailerName,
+      s.retailerPhone,
+      itemsText,
+      s.totalPieces,
+      s.grandTotal.toStringAsFixed(0),
+      s.discountAmount.toStringAsFixed(0),
+      s.cashAmount.toStringAsFixed(0),
+    ].map(csvCell).join(','));
+  }
+  return rows.join('\r\n');
+}
+
+String buildDealersCsv(List<Dealer> dealers) {
+  final rows = <String>[];
+  rows.add([
+    'Name',
+    'Phone',
+    'VisitCount',
+    'LastVisit',
+    'TotalPurchase',
+    'AvgPerVisit',
+    'GPS',
+    'VIP',
+  ].map(csvCell).join(','));
+  for (final d in dealers) {
+    rows.add([
+      d.name,
+      d.phone,
+      d.visitCount,
+      d.lastVisitDate == null ? '' : formatVisit(d.lastVisitDate!),
+      d.totalPurchase.toStringAsFixed(0),
+      d.average.toStringAsFixed(0),
+      d.bestGps,
+      d.vip ? 'Yes' : 'No',
+    ].map(csvCell).join(','));
+  }
+  return rows.join('\r\n');
+}
+
+Future<void> shareCsv(String filename, String csv, String subject) async {
+  final file = XFile.fromData(
+    Uint8List.fromList(utf8.encode('\uFEFF$csv')), // BOM যোগ, Excel বাংলা ঠিক দেখায়
+    name: filename,
+    mimeType: 'text/csv',
+  );
+  await SharePlus.instance.share(ShareParams(files: [file], text: subject));
+}
+
+/// পিন যাচাই করে তারপরই সেটিংস স্ক্রিন খোলে (পিন সেট না থাকলে সরাসরি খোলে)
+Future<void> openSettingsGated(BuildContext context) async {
+  final p = await AppPrefs.getInstance();
+  if (!context.mounted) return;
+  final allowed = await verifySettingsPin(context, p);
+  if (!allowed || !context.mounted) return;
+  await Navigator.push(
+      context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+}
+
+/// সেটিংসে ঢোকার আগে পিন যাচাই (পিন সেট না থাকলে সরাসরি ঢুকতে দেয়)
+Future<bool> verifySettingsPin(BuildContext context, AppPrefs p) async {
+  final pin = p.settingsPin();
+  if (pin == null) return true;
+  final ctrl = TextEditingController();
+  String? err;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setSt) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('সেটিংস পিন দিন',
+            style: TextStyle(color: AppColors.cobalt)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+              labelText: 'পিন',
+              prefixIcon: const Icon(Icons.lock_outline),
+              errorText: err),
+          onSubmitted: (_) {
+            if (ctrl.text == pin) {
+              Navigator.pop(ctx, true);
+            } else {
+              setSt(() => err = 'ভুল পিন');
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('বাতিল')),
+          ElevatedButton(
+            onPressed: () {
+              if (ctrl.text == pin) {
+                Navigator.pop(ctx, true);
+              } else {
+                setSt(() => err = 'ভুল পিন');
+              }
+            },
+            child: const Text('ঢুকুন'),
+          ),
+        ],
+      ),
+    ),
+  );
+  return ok == true;
 }
 
 Future<bool> _initializeFirebase() async {
@@ -585,7 +866,97 @@ Future<bool> _initializeFirebase() async {
 // ---------------------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // থিম প্রেফারেন্স আগেভাগে লোড করি, যাতে প্রথম ফ্রেমেই সঠিক থিম দেখা যায়
+  try {
+    final p = await AppPrefs.getInstance();
+    appThemeMode.value = p.loadThemeModeLocal();
+  } catch (_) {}
   runApp(const WifiCardApp());
+}
+
+ThemeData _buildTheme({required bool dark}) {
+  final scaffoldBg = dark ? AppColors.darkBg : AppColors.bg;
+  final surface = dark ? AppColors.darkSurface : Colors.white;
+  final fg = dark ? AppColors.darkAppBarFg : AppColors.cobalt;
+  final border = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(14),
+    borderSide: BorderSide(color: AppColors.sky.o(dark ? 0.25 : 0.3)),
+  );
+  return ThemeData(
+    useMaterial3: true,
+    brightness: dark ? Brightness.dark : Brightness.light,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: AppColors.cobalt,
+      brightness: dark ? Brightness.dark : Brightness.light,
+      primary: AppColors.cobalt,
+      secondary: AppColors.sky,
+      tertiary: AppColors.paleSky,
+      surface: dark ? AppColors.darkSurface : AppColors.bg,
+      onSurface: dark ? AppColors.darkAppBarFg : AppColors.ink,
+    ),
+    scaffoldBackgroundColor: scaffoldBg,
+    cardTheme: CardThemeData(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: AppColors.sky.o(0.2)),
+      ),
+      margin: const EdgeInsets.only(bottom: 12),
+    ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: surface,
+      foregroundColor: fg,
+      elevation: 0,
+      scrolledUnderElevation: 1,
+      centerTitle: true,
+      titleTextStyle:
+          TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: fg),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.cobalt,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        elevation: 2,
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.cobalt,
+        side: BorderSide(color: AppColors.cobalt.o(0.4)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: Colors.white,
+      border: border,
+      enabledBorder: border,
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.cobalt, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      prefixIconColor: AppColors.cobalt,
+      labelStyle: TextStyle(color: AppColors.cobalt.o(0.75)),
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: surface,
+      indicatorColor: AppColors.paleSky,
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return TextStyle(
+          fontSize: 11,
+          fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+          color: selected ? AppColors.cobalt : AppColors.muted,
+        );
+      }),
+    ),
+  );
 }
 
 class WifiCardApp extends StatelessWidget {
@@ -593,94 +964,18 @@ class WifiCardApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: BorderSide(color: AppColors.sky.o(0.3)),
-    );
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'WiFi Zone Manager',
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.cobalt,
-          primary: AppColors.cobalt,
-          secondary: AppColors.sky,
-          tertiary: AppColors.paleSky,
-          surface: AppColors.bg,
-          onSurface: AppColors.ink,
-        ),
-        scaffoldBackgroundColor: AppColors.bg,
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: BorderSide(color: AppColors.sky.o(0.2)),
-          ),
-          margin: const EdgeInsets.only(bottom: 12),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: AppColors.cobalt,
-          elevation: 0,
-          scrolledUnderElevation: 1,
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: AppColors.cobalt),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.cobalt,
-            foregroundColor: Colors.white,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            elevation: 2,
-            textStyle:
-                const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.cobalt,
-            side: BorderSide(color: AppColors.cobalt.o(0.4)),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: border,
-          enabledBorder: border,
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: AppColors.cobalt, width: 2),
-          ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          prefixIconColor: AppColors.cobalt,
-          labelStyle: TextStyle(color: AppColors.cobalt.o(0.75)),
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          indicatorColor: AppColors.paleSky,
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return TextStyle(
-              fontSize: 11,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-              color: selected ? AppColors.cobalt : AppColors.muted,
-            );
-          }),
-        ),
-      ),
-      home: const AuthGate(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: appThemeMode,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'WiFi Zone Manager',
+          themeMode: mode,
+          theme: _buildTheme(dark: false),
+          darkTheme: _buildTheme(dark: true),
+          home: const AuthGate(),
+        );
+      },
     );
   }
 }
@@ -1616,6 +1911,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<String> _weekLabels = [];
   Map<String, int> _monthCardSales = {};
   int _cloudBytes = 0;
+  double _monthProfit = 0; // অফিস পার্টনারের অংশ (ড্যাশবোর্ড লাভ)
+  double _monthGrand = 0;
+  double _monthDealerShare = 0;
+  double _monthCompanyShare = 0;
+  double _monthOfficeShare = 0;
+  double _dealerPct = 10.0;
+  double _companyPct = 50.0;
+  double _officePct = 40.0;
+  List<MapEntry<String, double>> _topDealers = [];
 
   @override
   void initState() {
@@ -1648,6 +1952,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _prices = p.cardPrices();
       _stock = p.stock();
       _cloudBytes = p.estimatedCloudBytes();
+      _dealerPct = p.dealerCommissionPercent();
+      _companyPct = p.companyCommissionPercent();
+      _officePct = p.officePartnerPercent();
       _compute(history);
       _stockValue = 0;
       for (final price in _prices) {
@@ -1657,12 +1964,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  bool _isUserAdmin(String? email) {
+    // লগইন করা যেকোনো ব্যবহারকারী ড্যাশবোর্ড দেখতে পারবে।
+    // (Firebase Auth-ই অ্যাক্সেস গেট; adminEmails ভবিষ্যতের জন্য সংরক্ষিত)
+    return email != null && email.isNotEmpty;
+  }
+
   void _compute(List<SaleRecord> history) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    double t = 0, w = 0, m = 0;
+    double t = 0, w = 0, m = 0, mGrand = 0;
     final chart = List<double>.filled(7, 0.0);
     final cards = <String, int>{};
+    final dealerTotals = <String, double>{};
     final labels = <String>[];
     for (int i = 6; i >= 0; i--) {
       final d = today.subtract(Duration(days: i));
@@ -1680,17 +1994,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       if (dt.year == now.year && dt.month == now.month) {
         m += sale.cashAmount;
+        mGrand += sale.grandTotal;
         sale.items.forEach((price, qty) {
           cards[price] = (cards[price] ?? 0) + qty;
         });
+        final dealer = sale.retailerName.trim();
+        if (dealer.isNotEmpty) {
+          dealerTotals[dealer] = (dealerTotals[dealer] ?? 0) + sale.cashAmount;
+        }
       }
     }
+    final ranked = dealerTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
     _today = t;
     _week = w;
     _month = m;
+    _monthGrand = mGrand;
+    // প্রতি কার্ড সেলে ফ্ল্যাট ভাগ — সেটিংসের % × এই মাসের মোট বিক্রয়
+    _monthDealerShare = mGrand * (_dealerPct / 100);
+    _monthCompanyShare = mGrand * (_companyPct / 100);
+    _monthOfficeShare = mGrand * (_officePct / 100);
+    _monthProfit = _monthOfficeShare;
     _weekData = chart;
     _weekLabels = labels;
     _monthCardSales = cards;
+    _topDealers = ranked.take(5).toList();
   }
 
   Future<void> _refresh() async {
@@ -1699,17 +2027,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-    _load();
+    await openSettingsGated(context);
+    if (mounted) _load();
   }
 
   Future<void> _applyStock(String price, int qty,
       {required bool overwrite}) async {
     final p = await AppPrefs.getInstance();
-    final latest = p.stock(); // সবসময় সর্বশেষ স্টক থেকে হিসাব
-    latest[price] = overwrite ? qty : (latest[price] ?? 0) + qty;
-    await p.saveStock(latest);
+    final before = p.stock(); // সবসময় সর্বশেষ স্টক থেকে হিসাব
+    final prevQty = before[price] ?? 0;
+    final newQty = overwrite ? qty : prevQty + qty;
+    before[price] = newQty;
+    await p.saveStock(before);
+    await p.appendStockLog(
+        price, overwrite ? (newQty - prevQty) : qty, overwrite ? 'set' : 'add', newQty);
     if (!mounted) return;
     await _load();
     if (!mounted) return;
@@ -1821,6 +2152,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _profitSplitRow(String name, double pct, double amount) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '$name ${pct.toStringAsFixed(0)}%',
+            style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.o(0.9),
+                fontWeight: FontWeight.w600),
+          ),
+        ),
+        Text(
+          taka(amount),
+          style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.white),
+        ),
+      ],
     );
   }
 
@@ -1982,6 +2336,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_loading) {
       return const Scaffold(body: Center(child: WifiLoader(size: 96, color: AppColors.cobalt)));
     }
+    
+    // Admin access check
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || !_isUserAdmin(currentUser.email)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Dashboard')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_outline, size: 64, color: AppColors.cobalt.o(0.5)),
+              const SizedBox(height: 16),
+              const Text('শুধু অ্যাডমিনরা ড্যাশবোর্ড দেখতে পারেন',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.cobalt)),
+              const SizedBox(height: 8),
+              Text('আপনার অ্যাকাউন্ট: ${currentUser?.email ?? "unknown"}',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            ],
+          ),
+        ),
+      );
+    }
+    
     final low = _prices
         .where((p) => (_stock['$p'] ?? 0) < AppConfig.lowStockLimit)
         .toList();
@@ -2020,6 +2397,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Icons.inventory_2_rounded,
                         const [Color(0xFF0F766E), Color(0xFF14B8A6)]),
                   ]),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF15803D), AppColors.success],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                            color: AppColors.success.o(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.trending_up_rounded,
+                            color: Colors.white.o(0.85), size: 24),
+                        const SizedBox(height: 8),
+                        Text(taka(_monthProfit),
+                            style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white)),
+                        const SizedBox(height: 6),
+                        Text(
+                            'অফিস পার্টনার লাভ (${_officePct.toStringAsFixed(0)}%) • এই মাস',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.o(0.85),
+                                fontWeight: FontWeight.w600)),
+                        if (_monthGrand > 0) ...[
+                          const SizedBox(height: 4),
+                          Text('মোট বিক্রয় ${taka(_monthGrand)}',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white.o(0.75))),
+                        ],
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 10, horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.o(0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            children: [
+                              _profitSplitRow(
+                                  'ডিলার',
+                                  _dealerPct,
+                                  _monthDealerShare),
+                              const SizedBox(height: 4),
+                              _profitSplitRow(
+                                  'কোম্পানি',
+                                  _companyPct,
+                                  _monthCompanyShare),
+                              const SizedBox(height: 4),
+                              _profitSplitRow(
+                                  'অফিস পার্টনার',
+                                  _officePct,
+                                  _monthProfit),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   if (low.isNotEmpty)
                     _banner(
@@ -2056,6 +2505,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 icon: Icons.credit_card_rounded,
                                 text: 'এই মাসে কোনো কার্ড বিক্রি হয়নি')),
                   ),
+                  if (_topDealers.isNotEmpty) ...[
+                    const SectionTitle('এই মাসের সেরা ৫ ডিলার'),
+                    AppCard(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      child: Column(
+                        children: [
+                          for (int i = 0; i < _topDealers.length; i++)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 26,
+                                    height: 26,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: i == 0
+                                          ? AppColors.warn.o(0.18)
+                                          : AppColors.bg,
+                                    ),
+                                    child: Text('${i + 1}',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 12,
+                                            color: i == 0
+                                                ? AppColors.warn
+                                                : AppColors.muted)),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(_topDealers[i].key,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w700)),
+                                  ),
+                                  Text(taka(_topDealers[i].value),
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: AppColors.cobalt)),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   SectionTitle(
                     'স্টক আপডেট',
                     trailing: const Text('ট্যাপ করে পরিবর্তন করুন',
@@ -2206,7 +2704,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     dealers.sort((a, b) => b.lastVisit.compareTo(a.lastVisit));
     if (!mounted) return;
     setState(() {
-      _rate = p.getDouble(AppConfig.commissionRate) ?? 10.0;
+      _rate = p.dealerCommissionPercent();
       _prices = p.cardPrices();
       _stock = p.stock();
       final seen = <String>{};
@@ -2359,7 +2857,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
           return;
         }
       }
-      final rate = p.getDouble(AppConfig.commissionRate) ?? _rate;
+      final rate = p.dealerCommissionPercent();
       final discount = total * (rate / 100);
       final counter = (p.getInt(AppConfig.invoiceCounter) ?? 1000) + 1;
       final sale = SaleRecord(
@@ -2382,6 +2880,10 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       await p.saveHistory(history);
       await p.saveDealers(dealers);
       await p.setInt(AppConfig.invoiceCounter, counter);
+      for (final e in sold.entries) {
+        await p.appendStockLog(
+            e.key, -e.value, 'sale', latestStock[e.key] ?? 0);
+      }
       if (!mounted) return;
       _clearAll();
       await _load();
@@ -2396,9 +2898,8 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-    _load();
+    await openSettingsGated(context);
+    if (mounted) _load();
   }
 
   Widget _stepButton(IconData icon, VoidCallback? onTap) {
@@ -2514,7 +3015,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         children: [
           ModernHeader(
             title: 'নতুন বিক্রয়',
-            subtitle: 'কমিশন রেট: ${_rate.toStringAsFixed(1)}%',
+            subtitle: 'ডিলার কমিশন: ${_rate.toStringAsFixed(0)}%',
             onSettingsTap: _openSettings,
           ),
           Expanded(
@@ -2622,7 +3123,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                       children: [
                         _sumRow('মোট মূল্য ($_pieces পিস)', taka(total)),
                         const SizedBox(height: 6),
-                        _sumRow('কমিশন (${_rate.toStringAsFixed(1)}%)',
+                        _sumRow('ডিলার কমিশন (${_rate.toStringAsFixed(0)}%)',
                             '- ${taka(discount)}',
                             valueColor: AppColors.sky),
                         const Divider(height: 22),
@@ -3073,6 +3574,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _companyNameCtrl = TextEditingController();
   final _companyPhoneCtrl = TextEditingController();
   final _commissionCtrl = TextEditingController();
+  final _companyCommCtrl = TextEditingController();
+  final _dealerCommCtrl = TextEditingController();
+  final _officeCommCtrl = TextEditingController();
+  final Map<int, TextEditingController> _costCtrls = {};
+  final _pinCtrl = TextEditingController();
+  String? _savedPin;
 
   @override
   void initState() {
@@ -3085,11 +3592,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _companyNameCtrl.dispose();
     _companyPhoneCtrl.dispose();
     _commissionCtrl.dispose();
+    _companyCommCtrl.dispose();
+    _dealerCommCtrl.dispose();
+    _officeCommCtrl.dispose();
+    _pinCtrl.dispose();
+    for (final c in _costCtrls.values) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  void _syncCostControllers(Map<String, double> costs) {
+    for (final price in _prices) {
+      final ctrl = _costCtrls.putIfAbsent(price, () => TextEditingController());
+      final c = costs[price.toString()];
+      ctrl.text = (c == null || c == 0) ? '' : c.toStringAsFixed(0);
+    }
+    final stale = _costCtrls.keys.where((k) => !_prices.contains(k)).toList();
+    for (final k in stale) {
+      _costCtrls.remove(k)?.dispose();
+    }
   }
 
   Future<void> _loadSettings() async {
     final p = await AppPrefs.getInstance();
+    final costs = p.costPrices();
     if (!mounted) return;
     setState(() {
       _companyNameCtrl.text = p.getString(AppConfig.companyName) ?? '';
@@ -3097,8 +3624,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final rate = p.getDouble(AppConfig.commissionRate) ?? 10.0;
       _commissionCtrl.text =
           rate == rate.roundToDouble() ? rate.toStringAsFixed(0) : '$rate';
+      final companyPct = p.companyCommissionPercent();
+      final dealerPct = p.dealerCommissionPercent();
+      final officePct = p.officePartnerPercent();
+      _companyCommCtrl.text = companyPct == companyPct.roundToDouble()
+          ? companyPct.toStringAsFixed(0)
+          : '$companyPct';
+      _dealerCommCtrl.text = dealerPct == dealerPct.roundToDouble()
+          ? dealerPct.toStringAsFixed(0)
+          : '$dealerPct';
+      _officeCommCtrl.text = officePct == officePct.roundToDouble()
+          ? officePct.toStringAsFixed(0)
+          : '$officePct';
+      _commissionCtrl.text = _dealerCommCtrl.text;
       _prices = p.cardPrices();
       _cloudBytes = p.estimatedCloudBytes();
+      _savedPin = p.settingsPin();
+      _syncCostControllers(costs);
       final encoded = p.getString(AppConfig.companyLogo);
       if (encoded != null && encoded.isNotEmpty) {
         try {
@@ -3136,9 +3678,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _save() async {
-    final rate = double.tryParse(_commissionCtrl.text.trim());
-    if (rate == null || rate < 0 || rate > 100) {
-      showMsg(context, 'কমিশন ০ থেকে ১০০ এর মধ্যে হতে হবে', error: true);
+    final companyPct = double.tryParse(_companyCommCtrl.text.trim());
+    final dealerPct = double.tryParse(_dealerCommCtrl.text.trim());
+    final officePct = double.tryParse(_officeCommCtrl.text.trim());
+    if (dealerPct == null || dealerPct < 0 || dealerPct > 100) {
+      setState(() => _busy = false);
+      if (!mounted) return;
+      showMsg(context, 'ডিলার % ০–১০০ এর মধ্যে দিন', error: true);
+      return;
+    }
+    if (companyPct == null || companyPct < 0 || companyPct > 100) {
+      setState(() => _busy = false);
+      if (!mounted) return;
+      showMsg(context, 'কোম্পানি % ০–১০০ এর মধ্যে দিন', error: true);
+      return;
+    }
+    if (officePct == null || officePct < 0 || officePct > 100) {
+      setState(() => _busy = false);
+      if (!mounted) return;
+      showMsg(context, 'অফিস পার্টনার % ০–১০০ এর মধ্যে দিন', error: true);
+      return;
+    }
+    final sum = dealerPct + companyPct + officePct;
+    if ((sum - 100).abs() > 0.05) {
+      setState(() => _busy = false);
+      if (!mounted) return;
+      showMsg(context,
+          'তিনটি % মিলিয়ে ঠিক ১০০ হতে হবে (এখন ${sum.toStringAsFixed(1)})',
+          error: true);
       return;
     }
     setState(() => _busy = true);
@@ -3146,8 +3713,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final p = await AppPrefs.getInstance();
       await p.setString(AppConfig.companyName, _companyNameCtrl.text.trim());
       await p.setString(AppConfig.companyPhone, _companyPhoneCtrl.text.trim());
-      await p.setDouble(AppConfig.commissionRate, rate);
+      await p.saveCommissionPercents(companyPct, dealerPct, officePct);
       await p.saveCardPrices(_prices);
+      final costs = <String, double>{};
+      for (final price in _prices) {
+        final v = double.tryParse(_costCtrls[price]?.text.trim() ?? '');
+        if (v != null && v > 0) costs[price.toString()] = v;
+      }
+      await p.saveCostPrices(costs);
       if (_logoRemoved) {
         await p.remove(AppConfig.companyLogo);
       } else if (_logoBytes != null) {
@@ -3214,6 +3787,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _prices
           ..add(value)
           ..sort();
+        _costCtrls[value] = TextEditingController();
         _dirty = true;
       });
     }
@@ -3231,8 +3805,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!ok) return;
     setState(() {
       _prices.remove(price);
+      _costCtrls.remove(price)?.dispose();
       _dirty = true;
     });
+  }
+
+  Future<void> _toggleDarkMode(bool dark) async {
+    appThemeMode.value = dark ? ThemeMode.dark : ThemeMode.light;
+    final p = await AppPrefs.getInstance();
+    await p.saveThemeModeLocal(appThemeMode.value);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _exportSalesCsv() async {
+    final p = await AppPrefs.getInstance();
+    if (!mounted) return;
+    final h = p.history();
+    if (h.isEmpty) {
+      showMsg(context, 'এক্সপোর্ট করার মতো কোনো বিক্রয় নেই', error: true);
+      return;
+    }
+    final ts = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    await shareCsv('sales_$ts.csv', buildSalesCsv(h), 'বিক্রয়ের রিপোর্ট - $ts');
+  }
+
+  Future<void> _exportDealersCsv() async {
+    final p = await AppPrefs.getInstance();
+    if (!mounted) return;
+    final d = await p.ensureDealers();
+    if (!mounted) return;
+    if (d.isEmpty) {
+      showMsg(context, 'এক্সপোর্ট করার মতো কোনো ডিলার নেই', error: true);
+      return;
+    }
+    final ts = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    await shareCsv('dealers_$ts.csv', buildDealersCsv(d), 'ডিলার রিপোর্ট - $ts');
+  }
+
+  Future<void> _openStockLog() async {
+    await Navigator.push(
+        context, MaterialPageRoute(builder: (_) => const StockLogScreen()));
+  }
+
+  Future<void> _savePin() async {
+    final pin = _pinCtrl.text.trim();
+    if (pin.isNotEmpty && pin.length < 4) {
+      showMsg(context, 'পিন অন্তত ৪ ডিজিট হতে হবে', error: true);
+      return;
+    }
+    final p = await AppPrefs.getInstance();
+    await p.saveSettingsPin(pin.isEmpty ? null : pin);
+    if (!mounted) return;
+    setState(() {
+      _savedPin = pin.isEmpty ? null : pin;
+      _pinCtrl.clear();
+    });
+    showMsg(context, pin.isEmpty ? 'পিন সরানো হয়েছে' : 'পিন সেট করা হয়েছে');
   }
 
   Future<void> _backupData() async {
@@ -3244,12 +3872,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'companyName': p.getString(AppConfig.companyName),
         'companyPhone': p.getString(AppConfig.companyPhone),
         'commissionRate': p.getDouble(AppConfig.commissionRate),
+        'companyCommission': p.companyCommissionPercent(),
+        'dealerCommission': p.dealerCommissionPercent(),
+        'officePartnerCommission': p.officePartnerPercent(),
         'invoiceCounter': p.getInt(AppConfig.invoiceCounter),
         'savedCardPrices': p.getStringList(AppConfig.savedCardPrices),
         'cardStock': p.getString(AppConfig.cardStock),
         'salesHistory': p.getString(AppConfig.salesHistory),
         'wifiZones': p.getString(AppConfig.wifiZones),
         'dealers': p.getString(AppConfig.dealers),
+        'cardCost': p.getString(AppConfig.cardCost),
+        'stockLog': p.getString(AppConfig.stockLog),
+        'adminEmails': p.getString(AppConfig.adminEmails),
         'companyLogoBase64': p.getString(AppConfig.companyLogo),
       };
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
@@ -3284,7 +3918,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         throw 'ব্যাকআপ সংস্করণ অসামঞ্জস্যপূর্ণ।';
       }
       // কিছু লেখার আগেই JSON ফিল্ডগুলো যাচাই
-      for (final f in ['cardStock', 'salesHistory', 'wifiZones', 'dealers']) {
+      for (final f in ['cardStock', 'salesHistory', 'wifiZones', 'dealers', 'cardCost', 'stockLog', 'adminEmails']) {
         final v = data[f];
         if (v is String) jsonDecode(v);
       }
@@ -3320,10 +3954,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // পুরনো ব্যাকআপ: রিস্টোর করা ইতিহাস থেকে ডিলার নতুন করে তৈরি হবে
         await p.remove(AppConfig.dealers);
       }
+      await str(AppConfig.cardCost, 'cardCost');
+      await str(AppConfig.stockLog, 'stockLog');
       await str(AppConfig.companyLogo, 'companyLogoBase64');
       if (data['commissionRate'] is num) {
         await p.setDouble(
             AppConfig.commissionRate, (data['commissionRate'] as num).toDouble());
+      }
+      final companyPct = (data['companyCommission'] as num?)?.toDouble();
+      final dealerPct = (data['dealerCommission'] as num?)?.toDouble();
+      final officePct = (data['officePartnerCommission'] as num?)?.toDouble();
+      if (companyPct != null || dealerPct != null || officePct != null) {
+        await p.saveCommissionPercents(
+          companyPct ?? 50.0,
+          dealerPct ?? 10.0,
+          officePct ?? 40.0,
+        );
       }
       if (data['invoiceCounter'] is num) {
         await p.setInt(
@@ -3495,16 +4141,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         labelText: 'ফোন', prefixIcon: Icon(Icons.phone)),
                   ),
                 ]),
-                _sectionCard('কনফিগারেশন', Icons.tune_rounded, [
+                _sectionCard('পার্টনার ভাগ (প্রতি কার্ড সেল)', Icons.percent_rounded, [
+                  const Text(
+                    'প্রতি কার্ড বিক্রয়ে মোট মূল্য এই তিন ভাগে ভাগ হবে। তিনটি মিলিয়ে ১০০% হতে হবে।',
+                    style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
-                    controller: _commissionCtrl,
+                    controller: _dealerCommCtrl,
                     onChanged: (_) => _markDirty(),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
-                        labelText: 'কমিশন %', prefixIcon: Icon(Icons.percent)),
+                        labelText: 'ডিলার %',
+                        prefixIcon: Icon(Icons.storefront_outlined),
+                        helperText: 'ডিফল্ট ১০ — বিক্রয়ে ডিলারের কমিশন'),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _companyCommCtrl,
+                    onChanged: (_) => _markDirty(),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'কোম্পানি %',
+                        prefixIcon: Icon(Icons.business_outlined),
+                        helperText: 'ডিফল্ট ৫০'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _officeCommCtrl,
+                    onChanged: (_) => _markDirty(),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'অফিস পার্টনার % (ড্যাশবোর্ড লাভ)',
+                        prefixIcon: Icon(Icons.groups_outlined),
+                        helperText: 'ডিফল্ট ৪০ — ড্যাশবোর্ডে লাভ হিসেবে দেখাবে'),
+                  ),
+                ]),
+                _sectionCard('কনফিগারেশন', Icons.tune_rounded, [
                   const Text('কার্ডের দাম',
                       style:
                           TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
@@ -3536,6 +4212,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Text('কোনো কার্ডের দাম যোগ করা হয়নি',
                           style: TextStyle(color: Colors.grey)),
                     ),
+                  if (_prices.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('কার্ডের ক্রয়মূল্য (কস্ট) — লাভ হিসাবের জন্য',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    const SizedBox(height: 4),
+                    const Text(
+                        'খালি রাখলে সেই কার্ডে লাভ ০ ধরা হবে',
+                        style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                    const SizedBox(height: 8),
+                    ..._prices.map((price) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: TextField(
+                            controller: _costCtrls[price],
+                            onChanged: (_) => _markDirty(),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: InputDecoration(
+                              labelText: '$price Tk কার্ডের ক্রয়মূল্য',
+                              prefixIcon: const Icon(Icons.shopping_bag_outlined),
+                              suffixText: 'Tk',
+                            ),
+                          ),
+                        )),
+                  ],
+
                 ]),
                 SizedBox(
                   width: double.infinity,
@@ -3546,6 +4248,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                _sectionCard('অ্যাপের ধরন', Icons.dark_mode_outlined, [
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: appThemeMode,
+                    builder: (context, mode, _) => SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('ডার্ক মোড'),
+                      subtitle: const Text('চোখের আরাম, বিশেষত রাতে',
+                          style: TextStyle(fontSize: 12)),
+                      value: mode == ThemeMode.dark,
+                      onChanged: _toggleDarkMode,
+                    ),
+                  ),
+                ]),
+                _sectionCard('রিপোর্ট এক্সপোর্ট (CSV)', Icons.table_chart_outlined, [
+                  const Text(
+                      'Excel/Google Sheets-এ খোলার মতো CSV ফাইল হিসেবে শেয়ার হবে',
+                      style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _exportSalesCsv,
+                        icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                        label: const Text('বিক্রয়'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _exportDealersCsv,
+                        icon: const Icon(Icons.storefront_outlined, size: 18),
+                        label: const Text('ডিলার'),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openStockLog,
+                      icon: const Icon(Icons.history_rounded, size: 18),
+                      label: const Text('স্টক পরিবর্তনের লগ দেখুন'),
+                    ),
+                  ),
+                ]),
+                _sectionCard('নিরাপত্তা (সেটিংস পিন)', Icons.lock_outline, [
+                  Text(
+                    _savedPin == null
+                        ? 'এখন পিন সেট নেই — যে কেউ সেটিংসে ঢুকতে পারবে'
+                        : 'পিন চালু আছে — সেটিংসে ঢুকতে পিন লাগবে',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: _savedPin == null
+                            ? AppColors.muted
+                            : AppColors.success,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _pinCtrl,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: _savedPin == null
+                          ? 'নতুন পিন (৪+ ডিজিট)'
+                          : 'নতুন পিন — খালি রেখে সংরক্ষণ করলে পিন বন্ধ হবে',
+                      prefixIcon: const Icon(Icons.password_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _savePin,
+                      icon: const Icon(Icons.save_outlined, size: 18),
+                      label: Text(_savedPin == null ? 'পিন চালু করুন' : 'পিন আপডেট/বন্ধ করুন'),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 4),
                 _sectionCard('ক্লাউড সিঙ্ক', Icons.cloud_sync_outlined, [
                   Row(children: [
                     const SyncBadgeDark(),
@@ -3718,6 +4501,122 @@ class SyncBadgeDark extends StatelessWidget {
         }
         return Icon(icon, color: color, size: 22);
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// স্টক পরিবর্তনের লগ (audit trail)
+// ---------------------------------------------------------------------------
+class StockLogScreen extends StatefulWidget {
+  const StockLogScreen({super.key});
+  @override
+  State<StockLogScreen> createState() => _StockLogScreenState();
+}
+
+class _StockLogScreenState extends State<StockLogScreen> {
+  List<Map<String, dynamic>> _log = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await AppPrefs.getInstance();
+    final l = p.stockLog();
+    if (!mounted) return;
+    setState(() {
+      _log = l;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('স্টক পরিবর্তনের লগ')),
+      body: _loading
+          ? const Center(child: WifiLoader(size: 96, color: AppColors.cobalt))
+          : _log.isEmpty
+              ? const EmptyState(
+                  icon: Icons.history_rounded,
+                  text: 'এখনও কোনো স্টক পরিবর্তন লগ হয়নি',
+                  hint: 'ড্যাশবোর্ড থেকে স্টক আপডেট করলে এখানে দেখাবে')
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _log.length,
+                  itemBuilder: (context, index) {
+                    final e = _log[index];
+                    final type = (e['type'] ?? '').toString();
+                    final price = (e['price'] ?? '').toString();
+                    final delta = (e['delta'] as num?)?.toInt() ?? 0;
+                    final qty = (e['qty'] as num?)?.toInt() ?? 0;
+                    final at = DateTime.tryParse((e['at'] ?? '').toString());
+                    IconData icon;
+                    Color color;
+                    String label;
+                    switch (type) {
+                      case 'sale':
+                        icon = Icons.point_of_sale_rounded;
+                        color = AppColors.cobalt;
+                        label = 'বিক্রয়';
+                        break;
+                      case 'set':
+                        icon = Icons.edit_rounded;
+                        color = AppColors.warn;
+                        label = 'সংশোধন';
+                        break;
+                      default:
+                        icon = Icons.add_box_rounded;
+                        color = AppColors.success;
+                        label = 'যোগ';
+                    }
+                    return AppCard(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                                color: color.o(0.12),
+                                borderRadius: BorderRadius.circular(10)),
+                            child: Icon(icon, color: color, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('$price Tk — $label',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700)),
+                                Text(
+                                    at == null
+                                        ? ''
+                                        : '${formatVisit(at)} • নতুন স্টক: $qty',
+                                    style: const TextStyle(
+                                        fontSize: 11.5, color: AppColors.muted)),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            delta >= 0 ? '+$delta' : '$delta',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: delta >= 0
+                                    ? AppColors.success
+                                    : AppColors.danger),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
@@ -4486,6 +5385,8 @@ class Dealer {
   String lastVisitGps; // সর্বশেষ বিক্রয়ের সময়ের লোকেশন
   double totalPurchase; // মোট নেট ক্রয়
   String lastInvoice;
+  bool vip; // গুরুত্বপূর্ণ ডিলার হিসেবে মার্ক করা
+  String reminder; // ভিজিট রিমাইন্ডারের তারিখ (YYYY-MM-DD), খালি = নেই
 
   Dealer({
     required this.id,
@@ -4497,6 +5398,8 @@ class Dealer {
     required this.lastVisitGps,
     required this.totalPurchase,
     required this.lastInvoice,
+    this.vip = false,
+    this.reminder = '',
   });
 
   DateTime? get lastVisitDate =>
@@ -4505,6 +5408,15 @@ class Dealer {
   String get bestGps => parseGps(gps) != null
       ? gps
       : (parseGps(lastVisitGps) != null ? lastVisitGps : '');
+  DateTime? get reminderDate =>
+      reminder.isEmpty ? null : DateTime.tryParse(reminder);
+  bool get reminderDue {
+    final r = reminderDate;
+    if (r == null) return false;
+    final today = DateTime.now();
+    return !DateTime(r.year, r.month, r.day)
+        .isAfter(DateTime(today.year, today.month, today.day));
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -4516,6 +5428,8 @@ class Dealer {
         'lastVisitGps': lastVisitGps,
         'totalPurchase': totalPurchase,
         'lastInvoice': lastInvoice,
+        'vip': vip,
+        'reminder': reminder,
       };
 
   factory Dealer.fromJson(Map<String, dynamic> j) {
@@ -4530,6 +5444,8 @@ class Dealer {
       lastVisitGps: (j['lastVisitGps'] ?? '').toString(),
       totalPurchase: (j['totalPurchase'] as num?)?.toDouble() ?? 0.0,
       lastInvoice: (j['lastInvoice'] ?? '').toString(),
+      vip: j['vip'] == true,
+      reminder: (j['reminder'] ?? '').toString(),
     );
   }
 }
@@ -4833,7 +5749,7 @@ class AppBottomBar extends StatelessWidget {
 // ---------------------------------------------------------------------------
 enum DealerSort { recent, visits, purchase, name, nearest }
 
-enum DealerFilter { all, today, stale, noGps }
+enum DealerFilter { all, today, stale, noGps, vip, reminder }
 
 class DealerScreen extends StatefulWidget {
   final bool active;
@@ -4931,6 +5847,10 @@ class _DealerScreenState extends State<DealerScreen> {
           return days != null && days >= 30;
         case DealerFilter.noGps:
           return d.bestGps.isEmpty;
+        case DealerFilter.vip:
+          return d.vip;
+        case DealerFilter.reminder:
+          return d.reminderDue;
       }
     }).toList();
 
@@ -5126,6 +6046,59 @@ class _DealerScreenState extends State<DealerScreen> {
 
   void _newSale(Dealer d) => saleDealerRequest.value = d;
 
+  Future<void> _toggleVip(Dealer d) async {
+    await _mutate(d, (x) => x.vip = !x.vip);
+    if (mounted) {
+      showMsg(context, d.vip ? 'VIP তালিকা থেকে সরানো হয়েছে' : 'VIP হিসেবে মার্ক করা হয়েছে');
+    }
+  }
+
+  Future<void> _setReminder(Dealer d) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: d.reminderDate ?? DateTime.now().add(const Duration(days: 7)),
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      helpText: 'ভিজিট রিমাইন্ডারের তারিখ বাছাই করুন',
+    );
+    if (picked == null) return;
+    final iso = DateTime(picked.year, picked.month, picked.day).toIso8601String();
+    await _mutate(d, (x) => x.reminder = iso);
+    if (mounted) showMsg(context, 'রিমাইন্ডার সেট হয়েছে');
+  }
+
+  Future<void> _clearReminder(Dealer d) async {
+    await _mutate(d, (x) => x.reminder = '');
+    if (mounted) showMsg(context, 'রিমাইন্ডার মুছে ফেলা হয়েছে');
+  }
+
+  /// GPS আছে এমন সব ডিলারকে একসাথে Google Maps-এ রুট আকারে খোলে (সর্বোচ্চ ১০টি স্টপ)
+  Future<void> _openAllOnMap() async {
+    final withGps = _dealers
+        .map((d) => parseGps(d.bestGps))
+        .whereType<List<double>>()
+        .take(10)
+        .toList();
+    if (withGps.isEmpty) {
+      showMsg(context, 'কোনো ডিলারের GPS লোকেশন সেভ করা নেই', error: true);
+      return;
+    }
+    final dest = withGps.last;
+    final waypoints = withGps
+        .sublist(0, withGps.length - 1)
+        .map((p) => '${p[0]},${p[1]}')
+        .join('|');
+    final uri = Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=${dest[0]},${dest[1]}'
+        '${waypoints.isEmpty ? '' : '&waypoints=$waypoints'}&travelmode=driving');
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) showMsg(context, 'ম্যাপ খোলা যাচ্ছে না', error: true);
+    } catch (_) {
+      if (mounted) showMsg(context, 'ম্যাপ খোলা যাচ্ছে না', error: true);
+    }
+  }
+
   Future<void> _openDetail(Dealer d) async {
     final key = dealerKey(d.name);
     final sales = _history.where((s) => dealerKey(s.retailerName) == key).toList();
@@ -5158,6 +6131,15 @@ class _DealerScreenState extends State<DealerScreen> {
         break;
       case 'setgps':
         await _setGpsHere(d);
+        break;
+      case 'vip':
+        await _toggleVip(d);
+        break;
+      case 'reminder':
+        await _setReminder(d);
+        break;
+      case 'clearReminder':
+        await _clearReminder(d);
         break;
       case 'delete':
         await _delete(d);
@@ -5260,11 +6242,22 @@ class _DealerScreenState extends State<DealerScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(d.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 16)),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(d.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 16)),
+                        ),
+                        if (d.vip) ...[
+                          const SizedBox(width: 4),
+                          const Icon(Icons.star_rounded,
+                              color: AppColors.warn, size: 17),
+                        ],
+                      ],
+                    ),
                     const SizedBox(height: 2),
                     Text(d.phone.isEmpty ? 'ফোন নেই' : d.phone,
                         style: const TextStyle(
@@ -5306,6 +6299,8 @@ class _DealerScreenState extends State<DealerScreen> {
               _pill(hasGps ? Icons.location_on_rounded : Icons.location_off_rounded,
                   hasGps ? 'লোকেশন সেভ' : 'GPS নেই',
                   hasGps ? AppColors.success : Colors.grey),
+              if (d.reminderDue)
+                _pill(Icons.notifications_active_rounded, 'রিমাইন্ডার', AppColors.danger),
             ],
           ),
           const SizedBox(height: 12),
@@ -5352,6 +6347,8 @@ class _DealerScreenState extends State<DealerScreen> {
       DealerFilter.today: 'আজ এসেছে',
       DealerFilter.stale: '৩০+ দিন আসেনি',
       DealerFilter.noGps: 'GPS নেই',
+      DealerFilter.vip: 'VIP',
+      DealerFilter.reminder: 'রিমাইন্ডার',
     };
 
     return Scaffold(
@@ -5397,17 +6394,22 @@ class _DealerScreenState extends State<DealerScreen> {
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           child: Row(
-                            children: DealerFilter.values
-                                .map((f) => Padding(
-                                      padding: const EdgeInsets.only(right: 8),
-                                      child: ChoiceChip(
-                                        label: Text(filterLabels[f]!),
-                                        selected: _filter == f,
-                                        onSelected: (_) =>
-                                            setState(() => _filter = f),
-                                      ),
-                                    ))
-                                .toList(),
+                            children: [
+                              ...DealerFilter.values.map((f) => Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: ChoiceChip(
+                                      label: Text(filterLabels[f]!),
+                                      selected: _filter == f,
+                                      onSelected: (_) =>
+                                          setState(() => _filter = f),
+                                    ),
+                                  )),
+                              ActionChip(
+                                avatar: const Icon(Icons.map_rounded, size: 16),
+                                label: const Text('সব ডিলার ম্যাপে'),
+                                onPressed: _openAllOnMap,
+                              ),
+                            ],
                           ),
                         ),
                         Padding(
@@ -5612,9 +6614,21 @@ class _DealerSheet extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(d.name,
-                            style: const TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.w900)),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(d.name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 20, fontWeight: FontWeight.w900)),
+                            ),
+                            if (d.vip) ...[
+                              const SizedBox(width: 6),
+                              const Icon(Icons.star_rounded,
+                                  color: AppColors.warn, size: 22),
+                            ],
+                          ],
+                        ),
                         Text(d.phone.isEmpty ? 'ফোন নেই' : d.phone,
                             style: const TextStyle(color: AppColors.muted)),
                         if (distance != null)
@@ -5653,6 +6667,14 @@ class _DealerSheet extends StatelessWidget {
                   d.bestGps.isEmpty ? 'সেট করা নেই' : d.bestGps),
               _info(Icons.pin_drop_outlined, 'সর্বশেষ ভিজিটের লোকেশন',
                   d.lastVisitGps.isEmpty ? 'সেভ হয়নি' : d.lastVisitGps),
+              _info(
+                Icons.notifications_active_outlined,
+                'ভিজিট রিমাইন্ডার',
+                d.reminderDate == null
+                    ? 'সেট করা নেই'
+                    : '${formatVisit(d.reminderDate!).split(',').first}'
+                        '${d.reminderDue ? ' — আজই ভিজিট করুন' : ''}',
+              ),
               if (recent.isNotEmpty) ...[
                 const Divider(height: 24),
                 const Text('সাম্প্রতিক ইনভয়েস',
@@ -5691,6 +6713,13 @@ class _DealerSheet extends StatelessWidget {
                       enabled: d.lastVisitGps.isNotEmpty),
                   _action(context, 'setgps', Icons.my_location_rounded,
                       'এখানকার লোকেশন সেট'),
+                  _action(context, 'vip', d.vip ? Icons.star_rounded : Icons.star_border_rounded,
+                      d.vip ? 'VIP বাতিল' : 'VIP করুন'),
+                  _action(context, 'reminder', Icons.notifications_active_outlined,
+                      d.reminderDate == null ? 'রিমাইন্ডার সেট' : 'রিমাইন্ডার বদলান'),
+                  if (d.reminderDate != null)
+                    _action(context, 'clearReminder', Icons.notifications_off_outlined,
+                        'রিমাইন্ডার মুছুন'),
                   _action(context, 'edit', Icons.edit_outlined, 'এডিট'),
                   _action(context, 'delete', Icons.delete_outline, 'মুছুন',
                       danger: true),
